@@ -67,8 +67,7 @@ final class CreateCollectionDialog extends JDialog {
         content.add(scroll, BorderLayout.CENTER);
         content.add(bottom, BorderLayout.SOUTH);
 
-        addRow("firstName");
-        addRow("lastName");
+        addRow("");
 
         getRootPane().setDefaultButton(create);
         getRootPane().registerKeyboardAction(e -> dispose(),
