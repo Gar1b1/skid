@@ -1,5 +1,6 @@
 package com.matmon.skidb.api;
 
+import java.util.Collection;
 import java.util.List;
 import java.util.Map;
 
@@ -22,6 +23,10 @@ import java.util.Map;
  * </ul>
  * The UI converts what the user types to these classes before calling you. It can also send a
  * value of the wrong class on purpose, so your DBMS must check every value against the schema.
+ * <p>
+ * Stage C adds queries by value and indexes. An index on a field maps each value of that field
+ * to the keys of the records that hold it, for example on firstName: "Israel" -> {1, 4, 8}.
+ * Every add, update and delete must keep the collection's indexes up to date.
  */
 public interface SkiDBAdapter {
 
@@ -95,4 +100,42 @@ public interface SkiDBAdapter {
      * @throws Exception if the collection does not exist
      */
     Map<String, Map<String, Object>> getAllRecords(String collection) throws Exception;
+
+    // ---------------------------------------------------------------- stage C: indexes and queries
+
+    /**
+     * Creates an index on a field of an existing collection, built from the records already in it.
+     * The UI also calls this right after {@link #createCollection} for fields the user chose to
+     * index at creation time.
+     *
+     * @throws Exception if the collection does not exist, the field is not in the schema,
+     *                   or the field is already indexed
+     */
+    void createIndex(String collection, String field) throws Exception;
+
+    /**
+     * @return the names of the indexed fields of the collection (empty if none, never null)
+     * @throws Exception if the collection does not exist
+     */
+    Collection<String> getIndexedFields(String collection) throws Exception;
+
+    /**
+     * Returns the content of an index, so the UI can show it and check that it is up to date.
+     *
+     * @return field value -> keys of the records that hold this value,
+     *         for example "Israel" -> {"1", "4", "8"}
+     * @throws Exception if the collection does not exist or the field is not indexed
+     */
+    Map<?, ? extends Collection<String>> getIndex(String collection, String field) throws Exception;
+
+    /**
+     * Returns every record whose fields equal ALL the given conditions.
+     * For example {"firstName" -> "Israel"} returns all records whose firstName is "Israel".
+     * Use the indexes of the conditions' fields, so the query does not scan the whole collection.
+     *
+     * @param conditions field name -> required value (a String, Integer or Boolean)
+     * @return key -> record value of each matching record (empty if none match)
+     * @throws Exception if the collection does not exist or a condition's field is not in the schema
+     */
+    Map<String, Map<String, Object>> query(String collection, Map<String, Object> conditions) throws Exception;
 }

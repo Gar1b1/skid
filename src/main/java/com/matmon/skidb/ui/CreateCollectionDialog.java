@@ -17,6 +17,7 @@ final class CreateCollectionDialog extends JDialog {
 
     private String collectionName;
     private Map<String, String> schema;
+    private List<String> indexedFields;
 
     CreateCollectionDialog(Window owner) {
         super(owner, "New collection", ModalityType.APPLICATION_MODAL);
@@ -42,7 +43,7 @@ final class CreateCollectionDialog extends JDialog {
         rowsHolder.add(rowsPanel, BorderLayout.NORTH);
         JScrollPane scroll = Theme.scroll(rowsHolder);
         scroll.setBorder(null);
-        scroll.setPreferredSize(new Dimension(420, 200));
+        scroll.setPreferredSize(new Dimension(500, 200));
 
         JButton addField = Theme.button("+ Add field");
         addField.addActionListener(e -> addRow("", FieldTypes.STRING));
@@ -64,8 +65,7 @@ final class CreateCollectionDialog extends JDialog {
         content.add(scroll, BorderLayout.CENTER);
         content.add(bottom, BorderLayout.SOUTH);
 
-        addRow("firstName", FieldTypes.STRING);
-        addRow("lastName", FieldTypes.STRING);
+        addRow("", FieldTypes.STRING);
 
         getRootPane().setDefaultButton(create);
         getRootPane().registerKeyboardAction(e -> dispose(),
@@ -82,6 +82,11 @@ final class CreateCollectionDialog extends JDialog {
     /** @return field name -> type, in the order entered */
     Map<String, String> getSchema() {
         return schema;
+    }
+
+    /** @return the fields to create an index on, in the order entered */
+    List<String> getIndexedFields() {
+        return indexedFields;
     }
 
     private void addRow(String fieldName, String type) {
@@ -107,6 +112,7 @@ final class CreateCollectionDialog extends JDialog {
             return;
         }
         Map<String, String> result = new LinkedHashMap<>();
+        List<String> indexed = new ArrayList<>();
         for (FieldRow row : rows) {
             String field = row.name.getText().trim();
             if (field.isEmpty()) {
@@ -117,9 +123,13 @@ final class CreateCollectionDialog extends JDialog {
                 return;
             }
             result.put(field, (String) row.type.getSelectedItem());
+            if (row.index.isSelected()) {
+                indexed.add(field);
+            }
         }
         collectionName = name;
         schema = result;
+        indexedFields = indexed;
         dispose();
     }
 
@@ -130,6 +140,7 @@ final class CreateCollectionDialog extends JDialog {
     private final class FieldRow extends JPanel {
         final JTextField name = Theme.field();
         final JComboBox<String> type = new JComboBox<>(FieldTypes.ALL);
+        final JCheckBox index = new JCheckBox("Index");
 
         FieldRow(String fieldName, String fieldType) {
             super(new BorderLayout(8, 0));
@@ -147,7 +158,15 @@ final class CreateCollectionDialog extends JDialog {
 
             JPanel east = new JPanel(new BorderLayout(8, 0));
             east.setOpaque(false);
-            east.add(type, BorderLayout.CENTER);
+            index.setOpaque(false);
+            index.setForeground(Theme.TEXT);
+            index.setFocusPainted(false);
+            index.setToolTipText("Create an index on this field");
+            JPanel typeAndIndex = new JPanel(new BorderLayout(8, 0));
+            typeAndIndex.setOpaque(false);
+            typeAndIndex.add(type, BorderLayout.CENTER);
+            typeAndIndex.add(index, BorderLayout.EAST);
+            east.add(typeAndIndex, BorderLayout.CENTER);
             east.add(remove, BorderLayout.EAST);
             add(name, BorderLayout.CENTER);
             add(east, BorderLayout.EAST);
