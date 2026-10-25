@@ -4,29 +4,19 @@ A Swing UI for the **SkiDB – Stage A** exercise. You build the DBMS; this UI l
 
 The UI never touches your internals. It talks to your DBMS only through one interface, `SkiDBAdapter`, so your design stays your own.
 
+> **Students: start with the [Student Guide](docs/STUDENT_GUIDE.md).** It has step-by-step setup for IntelliJ, VS Code, Maven, Gradle and the command line, an adapter template, a checklist and troubleshooting.
+
 ## 1. Get the JAR
 
-Requirements: Java 21+ and Maven.
+Requirements: Java 21+.
 
-```bash
-git clone https://github.com/Gar1b1/skid.git
-cd skid
-mvn install        # builds target/skidb-ui-1.0.jar and installs it to your local Maven repo
-```
+The prebuilt JAR is in [`dist/`](dist/): **[skidb-ui-1.0.jar](dist/skidb-ui-1.0.jar)**, plus an optional [sources JAR](dist/skidb-ui-1.0-sources.jar) for in-IDE documentation. It contains only the UI and the `SkiDBAdapter` interface, with no solution code.
+
+To build it yourself instead: `mvn package` → `target/skidb-ui-1.0.jar`.
 
 ## 2. Add it to your project
 
-**Maven** (after `mvn install` above):
-
-```xml
-<dependency>
-    <groupId>com.matmon</groupId>
-    <artifactId>skidb-ui</artifactId>
-    <version>1.0</version>
-</dependency>
-```
-
-**IntelliJ without Maven:** File → Project Structure → Libraries → `+` → Java → pick `target/skidb-ui-1.0.jar`.
+Put the JAR in a `lib/` folder in your project and add it as a library. In IntelliJ: File → Project Structure → Libraries → `+` → Java → `lib/skidb-ui-1.0.jar`. For other IDEs and build tools, see the [Student Guide](docs/STUDENT_GUIDE.md#2-add-the-jar-to-your-project).
 
 ## 3. Implement the adapter
 
