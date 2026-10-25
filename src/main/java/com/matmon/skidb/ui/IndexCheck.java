@@ -2,7 +2,9 @@ package com.matmon.skidb.ui;
 
 import com.matmon.skidb.api.IndexType;
 
+import java.time.LocalDateTime;
 import java.util.*;
+import java.util.function.Function;
 
 /**
  * Compares the index a student's DBMS returns for a field with the index the UI rebuilds from
@@ -23,6 +25,7 @@ final class IndexCheck {
     final String field;
     /** The field's schema type, e.g. Integer. */
     final String type;
+    /** HASH or TREE; null when this checks partitions. */
     final IndexType indexType;
     /** Why the index could not be read, or null if it was read. */
     final String error;
@@ -48,6 +51,18 @@ final class IndexCheck {
         String structureProblem = indexType == IndexType.TREE && !(index instanceof SortedMap)
                 ? "a TREE index must be a SortedMap such as TreeMap, but it is a " + index.getClass().getSimpleName()
                 : null;
+        return build(field, type, indexType, index, records, String::valueOf, structureProblem);
+    }
+
+    /** Checks that every record is in the partition of its time's hour, e.g. 2026-10-25T14:37 -> "2026-10-25T14". */
+    static IndexCheck partitions(String field, Map<?, ? extends Collection<?>> partitions, Map<String, Map<String, Object>> records) {
+        return build(field, FieldTypes.DATETIME, null, partitions, records,
+                v -> v instanceof LocalDateTime t ? FieldTypes.hourId(t) : "(not a DateTime: " + v + ")", null);
+    }
+
+    private static IndexCheck build(String field, String type, IndexType indexType, Map<?, ? extends Collection<?>> index,
+                                    Map<String, Map<String, Object>> records, Function<Object, String> expectedId,
+                                    String structureProblem) {
         Map<String, Set<String>> actual = new HashMap<>();
         index.forEach((value, keys) -> {
             if (keys != null && !keys.isEmpty()) {
@@ -59,7 +74,7 @@ final class IndexCheck {
         records.forEach((key, value) -> {
             Object v = value == null ? null : value.get(field);
             if (v != null) {
-                expected.computeIfAbsent(String.valueOf(v), x -> new HashSet<>()).add(key);
+                expected.computeIfAbsent(expectedId.apply(v), x -> new HashSet<>()).add(key);
             }
         });
 

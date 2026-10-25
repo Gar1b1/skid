@@ -1,6 +1,6 @@
 # SkiDB UI
 
-ממשק גרפי (Swing) לתרגיל **SkiDB** (שלבים א–ה). אתם בונים את ה-DBMS, וה-UI הזה מאפשר ליצור אוספים, להוסיף / לקרוא / לעדכן / למחוק רשומות ולראות את כל מסד הנתונים בזמן העבודה.
+ממשק גרפי (Swing) לתרגיל **SkiDB** (שלבים א–ו). אתם בונים את ה-DBMS, וה-UI הזה מאפשר ליצור אוספים, להוסיף / לקרוא / לעדכן / למחוק רשומות ולראות את כל מסד הנתונים בזמן העבודה.
 
 ה-UI לא נוגע במימוש הפנימי שלכם. הוא מדבר עם ה-DBMS רק דרך ממשק (interface) אחד, `SkiDBAdapter`, כך שהתכנון (Design) נשאר שלכם.
 
@@ -13,6 +13,8 @@
 > **שלב ד:** אין UI חדש. המשיכו עם [skidb-ui-3.0.jar](dist/skidb-ui-3.0.jar).
 >
 > **שלב ה (index מסוג TreeMap ושליפה לפי טווח):** ראו את [מדריך שלב ה](docs/STUDENT_GUIDE_STAGE_E.md) והשתמשו ב-[skidb-ui-5.0.jar](dist/skidb-ui-5.0.jar).
+>
+> **שלב ו (שליפה לפי partitions לפי זמן):** ראו את [מדריך שלב ו](docs/STUDENT_GUIDE_STAGE_F.md) והשתמשו ב-[skidb-ui-6.0.jar](dist/skidb-ui-6.0.jar).
 
 | שלב | JAR | מה נתמך |
 |---|---|---|
@@ -21,6 +23,7 @@
 | ג | [skidb-ui-3.0.jar](dist/skidb-ui-3.0.jar) | `String`, `Integer`, `Boolean` + שליפה לפי value ו-index |
 | ד | [skidb-ui-3.0.jar](dist/skidb-ui-3.0.jar) | כמו שלב ג (אין UI חדש) |
 | ה | [skidb-ui-5.0.jar](dist/skidb-ui-5.0.jar) | indexes מסוג `HASH` / `TREE` + שליפה לפי טווח (`>`, `>=`, `<`, `<=`, `between`) |
+| ו | [skidb-ui-6.0.jar](dist/skidb-ui-6.0.jar) | טיפוס `DateTime` + חלוקה ל-partitions לפי שעה ובדיקת pruning |
 
 ## בקצרה
 
@@ -54,4 +57,4 @@ mvn test-compile exec:java -Dexec.mainClass=com.matmon.skidb.demo.DemoLauncher -
 
 לבנייה מחדש של ה-JAR אחרי שינוי בקוד: `mvn package`, ואז העתיקו את `target/skidb-ui-<גרסה>.jar` ואת `target/skidb-ui-<גרסה>-sources.jar` אל `dist/`.
 
-הקוד של כל שלב נמצא בענף משלו: `stage-a` (1.0), `stage-b` (2.0), `stage-c` (3.0, משמש גם לשלב ד), ו-`main` (5.0, שלב ה). לתיקון ב-JAR ישן: ערכו את הענף שלו, הריצו שם `mvn package`, והעתיקו את ה-JAR החדש אל `dist/` ב-`main`.
+הקוד של כל שלב נמצא בענף משלו: `stage-a` (1.0), `stage-b` (2.0), `stage-c` (3.0, משמש גם לשלב ד), `stage-e` (5.0), ו-`main` (6.0, שלב ו). לתיקון ב-JAR ישן: ערכו את הענף שלו, הריצו שם `mvn package`, והעתיקו את ה-JAR החדש אל `dist/` ב-`main`.

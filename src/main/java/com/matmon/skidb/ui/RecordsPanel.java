@@ -57,9 +57,10 @@ final class RecordsPanel extends JPanel {
         table.clear();
     }
 
-    void show(String name, Map<String, String> schema, Map<String, IndexType> indexed, Map<String, Map<String, Object>> records) {
+    void show(String name, Map<String, String> schema, Map<String, IndexType> indexed, String partitionField,
+              Map<String, Map<String, Object>> records) {
         title.setText("Collection: " + name);
-        schemaLabel.setText(schemaText(schema, indexed));
+        schemaLabel.setText(schemaText(schema, indexed, partitionField));
         countLabel.setText(records.size() + (records.size() == 1 ? " record" : " records"));
         generate.setEnabled(!schema.isEmpty());
         table.show(schema, records);
@@ -69,15 +70,16 @@ final class RecordsPanel extends JPanel {
         table.select(key);
     }
 
-    /** "Schema: firstName : String (HASH index) · age : Integer", with the index in the accent color. */
-    static String schemaText(Map<String, String> schema, Map<String, IndexType> indexed) {
+    /** "Schema: firstName : String (HASH index) · at : DateTime (partitions)", with the notes in the accent color. */
+    static String schemaText(Map<String, String> schema, Map<String, IndexType> indexed, String partitionField) {
         if (schema.isEmpty()) {
             return "Schema: (no fields)";
         }
         String accent = String.format("#%06X", Theme.ACCENT.getRGB() & 0xFFFFFF);
         return "<html>Schema:&nbsp; " + schema.entrySet().stream()
                 .map(e -> e.getKey() + " : " + e.getValue()
-                        + (indexed.containsKey(e.getKey()) ? " <font color='" + accent + "'>(" + indexed.get(e.getKey()) + " index)</font>" : ""))
+                        + (indexed.containsKey(e.getKey()) ? " <font color='" + accent + "'>(" + indexed.get(e.getKey()) + " index)</font>" : "")
+                        + (e.getKey().equals(partitionField) ? " <font color='" + accent + "'>(partitions by hour)</font>" : ""))
                 .collect(Collectors.joining(" &nbsp;·&nbsp; ")) + "</html>";
     }
 }

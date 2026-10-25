@@ -1,12 +1,20 @@
 package com.matmon.skidb.ui;
 
-/** The field types supported in stage B, and conversion of typed text into their Java values. */
+import java.time.LocalDateTime;
+import java.time.format.DateTimeFormatter;
+import java.time.format.DateTimeParseException;
+import java.time.temporal.ChronoUnit;
+
+/** The field types, conversion of typed text into their Java values, and hour partition ids. */
 final class FieldTypes {
 
     static final String STRING = "String";
     static final String INTEGER = "Integer";
     static final String BOOLEAN = "Boolean";
-    static final String[] ALL = {STRING, INTEGER, BOOLEAN};
+    static final String DATETIME = "DateTime";
+    static final String[] ALL = {STRING, INTEGER, BOOLEAN, DATETIME};
+
+    private static final DateTimeFormatter HOUR_ID = DateTimeFormatter.ofPattern("yyyy-MM-dd'T'HH");
 
     private FieldTypes() {
     }
@@ -32,6 +40,13 @@ final class FieldTypes {
                 }
                 throw new IllegalArgumentException("\"" + text + "\" is not a valid Boolean (use true or false)");
             }
+            case DATETIME -> {
+                try {
+                    return LocalDateTime.parse(text.trim().replace(' ', 'T'));
+                } catch (DateTimeParseException e) {
+                    throw new IllegalArgumentException("\"" + text + "\" is not a valid DateTime (use 2026-10-25 14:30)");
+                }
+            }
             default -> {
                 return text;
             }
@@ -44,12 +59,27 @@ final class FieldTypes {
             case STRING -> value instanceof String;
             case INTEGER -> value instanceof Integer;
             case BOOLEAN -> value instanceof Boolean;
+            case DATETIME -> value instanceof LocalDateTime;
             default -> true; // unknown type name: nothing to check against
         };
     }
 
-    /** The type name of a value, for display: String, Integer, Boolean, or its class name. */
+    /** The type name of a value, for display: String, Integer, Boolean, DateTime, or its class name. */
     static String nameOf(Object value) {
-        return value == null ? "null" : value.getClass().getSimpleName();
+        return value == null ? "null" : value instanceof LocalDateTime ? DATETIME : value.getClass().getSimpleName();
+    }
+
+    /** The id of the hour partition a time belongs to, for example "2026-10-25T14". */
+    static String hourId(LocalDateTime t) {
+        return t.truncatedTo(ChronoUnit.HOURS).format(HOUR_ID);
+    }
+
+    /** The first moment of an hour partition, or null if {@code id} is not a valid partition id. */
+    static LocalDateTime hourStart(String id) {
+        try {
+            return LocalDateTime.parse(id + ":00");
+        } catch (DateTimeParseException e) {
+            return null;
+        }
     }
 }

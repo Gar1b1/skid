@@ -93,14 +93,15 @@ final class IndexesPanel extends JPanel {
 
         list.removeAll();
         for (IndexCheck check : checks) {
-            list.add(view(check));
+            list.add(view(check, check.field + "  (" + check.type + ")  ·  " + check.indexType));
         }
         list.revalidate();
         list.repaint();
     }
 
-    private static JComponent view(IndexCheck check) {
-        JLabel title = new JLabel(check.field + "  (" + check.type + ")  ·  " + check.indexType);
+    /** A titled table of one index or of a collection's partitions, with its in-sync status. */
+    static JComponent view(IndexCheck check, String titleText) {
+        JLabel title = new JLabel(titleText);
         title.setFont(Theme.BOLD);
         title.setForeground(Theme.TEXT);
         boolean rowsOk = check.rows.stream().allMatch(IndexCheck.Row::ok);
@@ -131,7 +132,10 @@ final class IndexesPanel extends JPanel {
 
     private static JComponent table(IndexCheck check) {
         boolean allOk = check.rows.stream().allMatch(IndexCheck.Row::ok);
-        String[] columns = allOk ? new String[]{"value", "keys"} : new String[]{"value", "keys in your index", "expected keys"};
+        boolean partitions = check.indexType == null;
+        String first = partitions ? "partition (hour)" : "value";
+        String[] columns = allOk ? new String[]{first, "keys"}
+                : new String[]{first, partitions ? "keys in your partition" : "keys in your index", "expected keys"};
         DefaultTableModel model = new DefaultTableModel(columns, 0) {
             @Override
             public boolean isCellEditable(int row, int column) {

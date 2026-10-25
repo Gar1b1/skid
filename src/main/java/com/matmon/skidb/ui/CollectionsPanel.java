@@ -72,7 +72,7 @@ final class CollectionsPanel extends JPanel {
         CreateCollectionDialog dialog = new CreateCollectionDialog(SwingUtilities.getWindowAncestor(this));
         dialog.setVisible(true);
         if (dialog.getCollectionName() != null) {
-            frame.createCollection(dialog.getCollectionName(), dialog.getSchema(), dialog.getIndexedFields());
+            frame.createCollection(dialog.getCollectionName(), dialog.getSchema(), dialog.getIndexedFields(), dialog.getPartitionField());
         }
     }
 

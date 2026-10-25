@@ -4,6 +4,9 @@ import com.matmon.skidb.api.Condition;
 import com.matmon.skidb.api.IndexType;
 import com.matmon.skidb.api.SkiDBAdapter;
 
+import java.time.LocalDateTime;
+import java.time.format.DateTimeFormatter;
+import java.time.temporal.ChronoUnit;
 import java.util.*;
 
 /**
@@ -13,17 +16,34 @@ import java.util.*;
 public class InMemoryDemoAdapter implements SkiDBAdapter {
 
     private static final Map<String, Class<?>> TYPES = Map.of(
-            "String", String.class, "Integer", Integer.class, "Boolean", Boolean.class);
+            "String", String.class, "Integer", Integer.class, "Boolean", Boolean.class, "DateTime", LocalDateTime.class);
+    private static final DateTimeFormatter HOUR_ID = DateTimeFormatter.ofPattern("yyyy-MM-dd'T'HH");
 
-    /** indexes: field -> (value -> keys); indexTypes: field -> HASH / TREE */
+    /**
+     * indexes: field -> (value -> keys); indexTypes: field -> HASH / TREE;
+     * partitions: hour id -> keys (sorted, so ids in a time range are a subMap), when partitionField is set
+     */
     private record Collection(Map<String, String> schema, Map<String, Map<String, Object>> records,
-                              Map<String, Map<Object, Set<String>>> indexes, Map<String, IndexType> indexTypes) {
+                              Map<String, Map<Object, Set<String>>> indexes, Map<String, IndexType> indexTypes,
+                              String partitionField, TreeMap<String, Set<String>> partitions, List<String> lastScanned) {
     }
 
     private final Map<String, Collection> collections = new LinkedHashMap<>();
 
     @Override
     public void createCollection(String name, Map<String, String> schema) {
+        create(name, schema, null);
+    }
+
+    @Override
+    public void createPartitionedCollection(String name, Map<String, String> schema, String partitionField) {
+        if (!"DateTime".equals(schema.get(partitionField))) {
+            throw new IllegalArgumentException("Partition field \"" + partitionField + "\" must be a DateTime field of the schema");
+        }
+        create(name, schema, partitionField);
+    }
+
+    private void create(String name, Map<String, String> schema, String partitionField) {
         if (collections.containsKey(name)) {
             throw new IllegalArgumentException("Collection \"" + name + "\" already exists");
         }
@@ -32,7 +52,8 @@ public class InMemoryDemoAdapter implements SkiDBAdapter {
                 throw new IllegalArgumentException("Unsupported type " + type + " for field " + field);
             }
         });
-        collections.put(name, new Collection(new LinkedHashMap<>(schema), new LinkedHashMap<>(), new LinkedHashMap<>(), new LinkedHashMap<>()));
+        collections.put(name, new Collection(new LinkedHashMap<>(schema), new LinkedHashMap<>(), new LinkedHashMap<>(),
+                new LinkedHashMap<>(), partitionField, new TreeMap<>(), new ArrayList<>()));
     }
 
     @Override
@@ -139,6 +160,14 @@ public class InMemoryDemoAdapter implements SkiDBAdapter {
             }
         }
         java.util.Collection<String> candidates = c.records().keySet();
+        c.lastScanned().clear();
+        if (c.partitionField() != null) {
+            SortedMap<String, Set<String>> read = partitionsFor(c, conditions);
+            c.lastScanned().addAll(read.keySet());
+            Set<String> keys = new HashSet<>();
+            read.values().forEach(keys::addAll);
+            candidates = keys;
+        }
         for (Condition cond : conditions) {
             Set<String> keys = candidates(c, cond);
             if (keys != null && keys.size() < candidates.size()) {
@@ -210,6 +239,68 @@ public class InMemoryDemoAdapter implements SkiDBAdapter {
         return ((Comparable) a).compareTo(b);
     }
 
+    @Override
+    public String getPartitionField(String collection) {
+        return get(collection).partitionField();
+    }
+
+    @Override
+    public Map<String, Set<String>> getPartitions(String collection) {
+        return get(collection).partitions();
+    }
+
+    @Override
+    public List<String> getScannedPartitions(String collection) {
+        return new ArrayList<>(get(collection).lastScanned());
+    }
+
+    /** The partitions whose hour can satisfy every condition on the partition field: a subMap of the sorted ids. */
+    private static SortedMap<String, Set<String>> partitionsFor(Collection c, List<Condition> conditions) {
+        String low = null;
+        String high = null;
+        for (Condition cond : conditions) {
+            if (!cond.field().equals(c.partitionField())) {
+                continue;
+            }
+            if (!(cond.value() instanceof LocalDateTime v) || (cond.operator() == Condition.Operator.BETWEEN && !(cond.to() instanceof LocalDateTime))) {
+                return new TreeMap<>(); // a value of the wrong type matches nothing
+            }
+            String from = null;
+            String to = null;
+            switch (cond.operator()) {
+                case EQUALS -> from = to = hourId(v);
+                case GREATER_THAN, GREATER_OR_EQUAL -> from = hourId(v);
+                case LESS_THAN -> to = hourId(v.minusNanos(1));
+                case LESS_OR_EQUAL -> to = hourId(v);
+                case BETWEEN -> {
+                    from = hourId(v);
+                    to = hourId((LocalDateTime) cond.to());
+                }
+            }
+            if (from != null && (low == null || from.compareTo(low) > 0)) {
+                low = from;
+            }
+            if (to != null && (high == null || to.compareTo(high) < 0)) {
+                high = to;
+            }
+        }
+        if (low != null && high != null && low.compareTo(high) > 0) {
+            return new TreeMap<>();
+        }
+        SortedMap<String, Set<String>> read = c.partitions();
+        if (low != null) {
+            read = read.tailMap(low);
+        }
+        if (high != null) {
+            read = read.headMap(high + "\0"); // inclusive upper bound
+        }
+        return read;
+    }
+
+    private static String hourId(LocalDateTime t) {
+        return t.truncatedTo(ChronoUnit.HOURS).format(HOUR_ID);
+    }
+
     private Collection get(String name) {
         Collection c = collections.get(name);
         if (c == null) {
@@ -227,10 +318,23 @@ public class InMemoryDemoAdapter implements SkiDBAdapter {
     }
 
     private static void index(Collection c, String key, Map<String, Object> value) {
+        if (c.partitionField() != null) {
+            c.partitions().computeIfAbsent(hourId((LocalDateTime) value.get(c.partitionField())), p -> new HashSet<>()).add(key);
+        }
         c.indexes().forEach((field, index) -> index.computeIfAbsent(value.get(field), v -> new HashSet<>()).add(key));
     }
 
     private static void unindex(Collection c, String key, Map<String, Object> value) {
+        if (c.partitionField() != null) {
+            String id = hourId((LocalDateTime) value.get(c.partitionField()));
+            Set<String> keys = c.partitions().get(id);
+            if (keys != null) {
+                keys.remove(key);
+                if (keys.isEmpty()) {
+                    c.partitions().remove(id);
+                }
+            }
+        }
         c.indexes().forEach((field, index) -> {
             Set<String> keys = index.get(value.get(field));
             if (keys != null) {

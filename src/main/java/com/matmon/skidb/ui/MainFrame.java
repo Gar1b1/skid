@@ -7,6 +7,8 @@ import com.matmon.skidb.api.SkiDBAdapter;
 import javax.swing.*;
 import javax.swing.border.EmptyBorder;
 import java.awt.*;
+import java.time.LocalDateTime;
+import java.time.temporal.ChronoUnit;
 import java.util.*;
 import java.util.List;
 import java.util.stream.Collectors;
@@ -28,6 +30,7 @@ final class MainFrame extends JFrame {
     private static final String TAB_RECORDS = "Records";
     private static final String TAB_QUERY = "Query";
     private static final String TAB_INDEXES = "Indexes";
+    private static final String TAB_PARTITIONS = "Partitions";
 
     private final SkiDBAdapter adapter;
     private final LogPanel log = new LogPanel();
@@ -35,6 +38,7 @@ final class MainFrame extends JFrame {
     private final RecordsPanel records = new RecordsPanel(this);
     private final QueryPanel query = new QueryPanel(this);
     private final IndexesPanel indexes = new IndexesPanel(this);
+    private final PartitionsPanel partitions = new PartitionsPanel();
     private final RecordFormPanel form = new RecordFormPanel(this);
     private final CardLayout cards = new CardLayout();
     private final JPanel cardPanel = new JPanel(cards);
@@ -44,6 +48,8 @@ final class MainFrame extends JFrame {
     private Map<String, String> currentSchema = Map.of();
     private Map<String, Map<String, Object>> currentRecords = Map.of();
     private List<IndexCheck> currentChecks = List.of();
+    private String currentPartitionField;
+    private IndexCheck currentPartitionCheck;
 
     MainFrame(SkiDBAdapter adapter) {
         super("SkiDB — MatmonDB");
@@ -58,6 +64,7 @@ final class MainFrame extends JFrame {
         cardPanel.add(records, TAB_RECORDS);
         cardPanel.add(query, TAB_QUERY);
         cardPanel.add(indexes, TAB_INDEXES);
+        cardPanel.add(partitions, TAB_PARTITIONS);
         JPanel center = new JPanel(new BorderLayout());
         center.setBackground(Theme.BG);
         center.add(tabBar(), BorderLayout.NORTH);
@@ -92,7 +99,7 @@ final class MainFrame extends JFrame {
         brand.setFont(Theme.BRAND);
         brand.setForeground(Theme.TEXT);
 
-        JLabel title = new JLabel("SkiDB — Stage E", SwingConstants.CENTER);
+        JLabel title = new JLabel("SkiDB — Stage F", SwingConstants.CENTER);
         title.setFont(Theme.TITLE);
         title.setForeground(Theme.TEXT);
 
@@ -123,7 +130,7 @@ final class MainFrame extends JFrame {
     private JComponent tabBar() {
         JPanel bar = new JPanel(new FlowLayout(FlowLayout.LEFT, 0, 0));
         bar.setBackground(Theme.BG);
-        for (String name : List.of(TAB_RECORDS, TAB_QUERY, TAB_INDEXES)) {
+        for (String name : List.of(TAB_RECORDS, TAB_QUERY, TAB_INDEXES, TAB_PARTITIONS)) {
             JButton tab = Theme.button(name);
             tab.addActionListener(e -> selectTab(name));
             tabs.put(name, tab);
@@ -230,8 +237,11 @@ final class MainFrame extends JFrame {
             currentSchema = Map.of();
             currentRecords = Map.of();
             currentChecks = List.of();
+            currentPartitionField = null;
+            currentPartitionCheck = null;
             records.clear();
             indexes.clear();
+            partitions.clear();
             query.setCollection(null, Map.of(), Map.of());
             form.setCollection(null, Map.of());
             updateIndexesTab();
@@ -242,10 +252,12 @@ final class MainFrame extends JFrame {
         Map<String, IndexType> indexed = call("getIndexes(\"" + name + "\")", () -> adapter.getIndexes(name), false)
                 .<Map<String, IndexType>>map(LinkedHashMap::new).orElse(new LinkedHashMap<>());
         currentChecks = indexed.entrySet().stream().map(e -> checkIndex(name, e.getKey(), e.getValue())).toList();
+        loadPartitions(name);
 
-        records.show(name, currentSchema, indexed, currentRecords);
+        records.show(name, currentSchema, indexed, currentPartitionField, currentRecords);
         query.setCollection(name, currentSchema, indexed);
         indexes.show(currentSchema, indexed.keySet(), currentChecks);
+        partitions.show(currentPartitionField, currentPartitionCheck);
         form.setCollection(name, currentSchema);
         updateIndexesTab();
     }
@@ -263,9 +275,34 @@ final class MainFrame extends JFrame {
         }
     }
 
+    /** Reads the partition field (null when not partitioned) and checks the partitions against the records. */
+    private void loadPartitions(String name) {
+        currentPartitionField = null;
+        currentPartitionCheck = null;
+        try {
+            currentPartitionField = adapter.getPartitionField(name);
+        } catch (Throwable t) {
+            log.error("getPartitionField(\"" + name + "\") failed — " + describe(t));
+            return;
+        }
+        if (currentPartitionField == null) {
+            return;
+        }
+        try {
+            Map<String, ? extends Collection<String>> p = adapter.getPartitions(name);
+            currentPartitionCheck = p == null
+                    ? IndexCheck.failed(currentPartitionField, FieldTypes.DATETIME, null, "getPartitions returned null")
+                    : IndexCheck.partitions(currentPartitionField, p, currentRecords);
+        } catch (Throwable t) {
+            currentPartitionCheck = IndexCheck.failed(currentPartitionField, FieldTypes.DATETIME, null, describe(t));
+        }
+    }
+
     private void updateIndexesTab() {
         boolean bad = currentChecks.stream().anyMatch(c -> !c.ok());
         tabs.get(TAB_INDEXES).setText(bad ? TAB_INDEXES + " ⚠" : TAB_INDEXES);
+        boolean badPartitions = currentPartitionCheck != null && !currentPartitionCheck.ok();
+        tabs.get(TAB_PARTITIONS).setText(badPartitions ? TAB_PARTITIONS + " ⚠" : TAB_PARTITIONS);
     }
 
     /** Logs every index that no longer matches the records - called after each change. */
@@ -275,12 +312,19 @@ final class MainFrame extends JFrame {
                 log.error("Index on \"" + check.field + "\" is out of sync — " + check.problem());
             }
         }
+        if (currentPartitionCheck != null && !currentPartitionCheck.ok()) {
+            log.error("Partitions of \"" + currentPartitionCheck.field + "\" are out of sync — " + currentPartitionCheck.problem());
+        }
     }
 
     // ---------------------------------------------------------------- operations
 
-    void createCollection(String name, Map<String, String> schema, Map<String, IndexType> indexedFields) {
-        if (run("Create collection \"" + name + "\" " + format(schema), () -> adapter.createCollection(name, schema))) {
+    void createCollection(String name, Map<String, String> schema, Map<String, IndexType> indexedFields, String partitionField) {
+        boolean created = partitionField == null
+                ? run("Create collection \"" + name + "\" " + format(schema), () -> adapter.createCollection(name, schema))
+                : run("Create collection \"" + name + "\" " + format(schema) + " partitioned by the hour of \"" + partitionField + "\"",
+                () -> adapter.createPartitionedCollection(name, schema, partitionField));
+        if (created) {
             indexedFields.forEach((field, type) -> run("Create " + type + " index on \"" + field + "\" in \"" + name + "\"",
                     () -> adapter.createIndex(name, field, type)));
             currentCollection = name;
@@ -380,7 +424,9 @@ final class MainFrame extends JFrame {
         for (Condition cond : conditions) {
             IndexType t = indexed.get(cond.field());
             boolean range = cond.operator() != Condition.Operator.EQUALS;
-            if (t == IndexType.TREE || (t == IndexType.HASH && !range)) {
+            if (cond.field().equals(currentPartitionField)) {
+                used.add(cond.field() + " " + cond.operator().symbol() + " (partitions" + (t == null ? "" : ", " + t) + ")");
+            } else if (t == IndexType.TREE || (t == IndexType.HASH && !range)) {
                 used.add(cond.field() + " " + cond.operator().symbol() + " (" + t + ")");
             } else {
                 notUsed.add(cond.field() + " " + cond.operator().symbol() + (t == IndexType.HASH ? " (HASH can't help a range)" : ""));
@@ -389,7 +435,7 @@ final class MainFrame extends JFrame {
         String time = String.format("%.3f ms", nanos[0] / 1_000_000.0);
         String summary = found.size() + (found.size() == 1 ? " result" : " results") + " in " + time
                 + " · " + currentRecords.size() + " records in the collection";
-        String indexLine = (used.isEmpty() ? "" : "can use an index: " + String.join(", ", used))
+        String indexLine = (used.isEmpty() ? "" : "can narrow the search: " + String.join(", ", used))
                 + (used.isEmpty() || notUsed.isEmpty() ? "" : " · ")
                 + (notUsed.isEmpty() ? "" : "no usable index: " + String.join(", ", notUsed));
         String check = ok ? "✔ Same records as a full scan of the collection"
@@ -397,12 +443,83 @@ final class MainFrame extends JFrame {
                 + (missing.isEmpty() ? "" : " · missing keys " + RecordTable.sortedKeys(missing))
                 + (unexpected.isEmpty() ? "" : " · unexpected keys " + RecordTable.sortedKeys(unexpected));
 
-        query.showResult("<html>" + escape(summary) + "<br>" + escape(indexLine) + "<br>" + escape(check) + "</html>", ok, found);
+        String partitionLine = currentPartitionField == null ? null : checkPruning(c, conditions);
+        boolean pruned = partitionLine == null || partitionLine.startsWith("✔");
+        query.showResult("<html>" + escape(summary) + "<br>" + escape(indexLine) + "<br>" + escape(check)
+                + (partitionLine == null ? "" : "<br>" + escape(partitionLine)) + "</html>", ok && pruned, found);
         if (ok) {
             log.info(summary + " · " + indexLine);
         } else {
             log.error("Query result is wrong — " + check.substring(2));
         }
+        if (partitionLine != null) {
+            if (pruned) {
+                log.info(partitionLine.substring(2));
+            } else {
+                log.error(partitionLine.substring(2));
+            }
+            partitions.showLastQuery("<html>Last query: " + escape(where) + "<br>" + escape(partitionLine) + "</html>", pruned);
+        }
+    }
+
+    /**
+     * Compares the partitions the student's last query read with the partitions that hold records
+     * whose hour can satisfy the conditions on the partition field.
+     */
+    private String checkPruning(String c, List<Condition> conditions) {
+        Optional<Collection<String>> scannedResult = call("getScannedPartitions(\"" + c + "\")", () -> adapter.getScannedPartitions(c), false);
+        if (scannedResult.isEmpty()) {
+            return "✖ Partitions: getScannedPartitions failed — see the log";
+        }
+        Set<String> scanned = new TreeSet<>();
+        scannedResult.get().forEach(p -> scanned.add(String.valueOf(p)));
+        Set<String> all = new TreeSet<>();
+        currentRecords.values().forEach(v -> {
+            if (v != null && v.get(currentPartitionField) instanceof LocalDateTime t) {
+                all.add(FieldTypes.hourId(t));
+            }
+        });
+        List<Condition> onTime = conditions.stream().filter(cond -> cond.field().equals(currentPartitionField)).toList();
+        Set<String> needed = new TreeSet<>();
+        for (String id : all) {
+            LocalDateTime start = FieldTypes.hourStart(id);
+            if (onTime.stream().allMatch(cond -> overlaps(cond, start))) {
+                needed.add(id);
+            }
+        }
+        Set<String> extra = new TreeSet<>(scanned);
+        extra.removeAll(needed);
+        Set<String> missing = new TreeSet<>(needed);
+        missing.removeAll(scanned);
+        String counts = "Partitions: read " + scanned.size() + " of " + all.size() + ", needed " + needed.size()
+                + (onTime.isEmpty() ? " (no condition on \"" + currentPartitionField + "\", so every partition is needed)" : "");
+        if (extra.isEmpty() && missing.isEmpty()) {
+            return "✔ " + counts;
+        }
+        return "✖ " + counts
+                + (extra.isEmpty() ? "" : " · could have skipped " + shortList(extra))
+                + (missing.isEmpty() ? "" : " · did not read needed " + shortList(missing));
+    }
+
+    /** Whether some time inside the hour starting at {@code start} can satisfy the condition. */
+    private static boolean overlaps(Condition cond, LocalDateTime start) {
+        if (!(cond.value() instanceof LocalDateTime v)) {
+            return false; // a value of the wrong type matches nothing
+        }
+        LocalDateTime last = start.plus(1, ChronoUnit.HOURS).minusNanos(1);
+        return switch (cond.operator()) {
+            case EQUALS -> !v.isBefore(start) && !v.isAfter(last);
+            case GREATER_THAN -> last.isAfter(v);
+            case GREATER_OR_EQUAL -> !last.isBefore(v);
+            case LESS_THAN -> start.isBefore(v);
+            case LESS_OR_EQUAL -> !start.isAfter(v);
+            case BETWEEN -> cond.to() instanceof LocalDateTime to && !start.isAfter(to) && !last.isBefore(v);
+        };
+    }
+
+    private static String shortList(Set<String> ids) {
+        List<String> first = ids.stream().limit(3).toList();
+        return first + (ids.size() > first.size() ? " and " + (ids.size() - first.size()) + " more" : "");
     }
 
     /** Adds many random records, to measure query speed with and without an index. */
@@ -434,6 +551,7 @@ final class MainFrame extends JFrame {
         String[] names = {"Israel", "Ploni", "John", "Dana", "Noa", "Yossi", "Maya", "Avi", "Tamar", "David",
                 "Shira", "Omer", "Yael", "Itai", "Roni", "Gal", "Lior", "Neta", "Eden", "Amit"};
         Random random = new Random();
+        LocalDateTime now = LocalDateTime.now().truncatedTo(ChronoUnit.MINUTES);
         Map<String, String> schema = currentSchema;
         setCursor(Cursor.getPredefinedCursor(Cursor.WAIT_CURSOR));
         long start = System.nanoTime();
@@ -445,6 +563,7 @@ final class MainFrame extends JFrame {
                 schema.forEach((field, type) -> value.put(field, switch (type) {
                     case FieldTypes.INTEGER -> 18 + random.nextInt(50);
                     case FieldTypes.BOOLEAN -> random.nextBoolean();
+                    case FieldTypes.DATETIME -> now.minusMinutes(random.nextInt(3 * 24 * 60));
                     default -> names[random.nextInt(names.length)];
                 }));
                 if (call("Add record " + key + " " + format(value), () -> {
@@ -477,8 +596,15 @@ final class MainFrame extends JFrame {
             Map<String, String> schema = call("getSchema(\"" + name + "\")", () -> adapter.getSchema(name), false).orElse(null);
             Map<String, IndexType> indexed = call("getIndexes(\"" + name + "\")", () -> adapter.getIndexes(name), false).orElse(null);
             Map<String, Map<String, Object>> recs = call("getAllRecords(\"" + name + "\")", () -> adapter.getAllRecords(name), false).orElse(null);
+            String partitionField;
+            try {
+                partitionField = adapter.getPartitionField(name);
+            } catch (Throwable t) {
+                partitionField = "?";
+            }
             log.info("  " + name + "  schema " + (schema == null ? "?" : format(schema))
-                    + "  indexes " + (indexed == null ? "?" : indexed));
+                    + "  indexes " + (indexed == null ? "?" : indexed)
+                    + (partitionField == null ? "" : "  partitioned by the hour of " + partitionField));
             if (recs != null) {
                 RecordTable.sortedKeys(recs.keySet()).forEach(k -> log.info("      " + k + " → " + format(recs.get(k))));
             }

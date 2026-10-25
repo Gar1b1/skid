@@ -14,6 +14,7 @@ import java.util.Map;
 final class CreateCollectionDialog extends JDialog {
 
     private static final String NO_INDEX = "No index";
+    private static final String NO_PARTITION = "None";
 
     private final JTextField nameField = Theme.field();
     private final JPanel rowsPanel = new JPanel();
@@ -22,6 +23,8 @@ final class CreateCollectionDialog extends JDialog {
     private String collectionName;
     private Map<String, String> schema;
     private Map<String, IndexType> indexedFields;
+    private String partitionField;
+    private final JComboBox<String> partitionCombo = new JComboBox<>(new String[]{NO_PARTITION});
 
     CreateCollectionDialog(Window owner) {
         super(owner, "New collection", ModalityType.APPLICATION_MODAL);
@@ -65,8 +68,36 @@ final class CreateCollectionDialog extends JDialog {
         bottom.add(addField, BorderLayout.WEST);
         bottom.add(right, BorderLayout.EAST);
 
+        partitionCombo.setPreferredSize(new Dimension(180, 28));
+        partitionCombo.setBorder(BorderFactory.createLineBorder(Theme.BORDER));
+        partitionCombo.setToolTipText("Split the records into one partition per hour of a DateTime field");
+        partitionCombo.addPopupMenuListener(new javax.swing.event.PopupMenuListener() {
+            @Override
+            public void popupMenuWillBecomeVisible(javax.swing.event.PopupMenuEvent e) {
+                refreshPartitionChoices();
+            }
+
+            @Override
+            public void popupMenuWillBecomeInvisible(javax.swing.event.PopupMenuEvent e) {
+            }
+
+            @Override
+            public void popupMenuCanceled(javax.swing.event.PopupMenuEvent e) {
+            }
+        });
+        JPanel partitionRow = new JPanel(new FlowLayout(FlowLayout.LEFT, 8, 0));
+        partitionRow.setOpaque(false);
+        partitionRow.setBorder(new EmptyBorder(8, 0, 0, 0));
+        partitionRow.add(Theme.label("Partition by hour of"));
+        partitionRow.add(partitionCombo);
+        partitionRow.add(Theme.muted("(a DateTime field)"));
+        JPanel center = new JPanel(new BorderLayout());
+        center.setOpaque(false);
+        center.add(scroll, BorderLayout.CENTER);
+        center.add(partitionRow, BorderLayout.SOUTH);
+
         content.add(top, BorderLayout.NORTH);
-        content.add(scroll, BorderLayout.CENTER);
+        content.add(center, BorderLayout.CENTER);
         content.add(bottom, BorderLayout.SOUTH);
 
         addRow("", FieldTypes.STRING);
@@ -91,6 +122,28 @@ final class CreateCollectionDialog extends JDialog {
     /** @return the fields to create an index on and the index type, in the order entered */
     Map<String, IndexType> getIndexedFields() {
         return indexedFields;
+    }
+
+    /** @return the DateTime field to partition by the hour of, or null for no partitions */
+    String getPartitionField() {
+        return partitionField;
+    }
+
+    /** Offers the DateTime fields currently in the dialog, keeping the selection if it is still one. */
+    private void refreshPartitionChoices() {
+        Object selected = partitionCombo.getSelectedItem();
+        partitionCombo.removeAllItems();
+        partitionCombo.addItem(NO_PARTITION);
+        for (FieldRow row : rows) {
+            String field = row.name.getText().trim();
+            if (!field.isEmpty() && FieldTypes.DATETIME.equals(row.type.getSelectedItem())) {
+                partitionCombo.addItem(field);
+            }
+        }
+        partitionCombo.setSelectedItem(selected);
+        if (partitionCombo.getSelectedIndex() < 0) {
+            partitionCombo.setSelectedIndex(0);
+        }
     }
 
     private void addRow(String fieldName, String type) {
@@ -131,9 +184,16 @@ final class CreateCollectionDialog extends JDialog {
                 indexed.put(field, t);
             }
         }
+        Object partition = partitionCombo.getSelectedItem();
+        if (partition != null && !NO_PARTITION.equals(partition)
+                && !FieldTypes.DATETIME.equals(result.get((String) partition))) {
+            warn("The partition field \"" + partition + "\" must be a DateTime field of the schema.");
+            return;
+        }
         collectionName = name;
         schema = result;
         indexedFields = indexed;
+        partitionField = partition == null || NO_PARTITION.equals(partition) ? null : (String) partition;
         dispose();
     }
 
