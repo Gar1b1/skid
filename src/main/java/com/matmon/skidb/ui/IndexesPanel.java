@@ -1,5 +1,7 @@
 package com.matmon.skidb.ui;
 
+import com.matmon.skidb.api.IndexType;
+
 import javax.swing.*;
 import javax.swing.border.EmptyBorder;
 import javax.swing.table.DefaultTableCellRenderer;
@@ -17,6 +19,7 @@ final class IndexesPanel extends JPanel {
 
     private final JLabel subtitle = Theme.muted(" ");
     private final JComboBox<String> fieldCombo = new JComboBox<>();
+    private final JComboBox<IndexType> typeCombo = new JComboBox<>(IndexType.values());
     private final JButton create = Theme.button("Create index", true);
     private final JPanel list = new JPanel();
 
@@ -27,16 +30,21 @@ final class IndexesPanel extends JPanel {
 
         fieldCombo.setPreferredSize(new Dimension(180, 30));
         fieldCombo.setBorder(BorderFactory.createLineBorder(Theme.BORDER));
+        typeCombo.setPreferredSize(new Dimension(90, 30));
+        typeCombo.setBorder(BorderFactory.createLineBorder(Theme.BORDER));
+        typeCombo.setToolTipText("HASH: fast \"=\" lookups · TREE: sorted, also answers range conditions");
         create.addActionListener(e -> {
             String field = (String) fieldCombo.getSelectedItem();
             if (field != null) {
-                frame.createIndex(field);
+                frame.createIndex(field, (IndexType) typeCombo.getSelectedItem());
             }
         });
         JPanel createRow = new JPanel(new FlowLayout(FlowLayout.LEFT, 8, 0));
         createRow.setOpaque(false);
         createRow.add(Theme.label("Create an index on"));
         createRow.add(fieldCombo);
+        createRow.add(Theme.label("of type"));
+        createRow.add(typeCombo);
         createRow.add(create);
 
         JPanel header = new JPanel(new BorderLayout(0, 8));
@@ -63,6 +71,7 @@ final class IndexesPanel extends JPanel {
         subtitle.setText("Select a collection first.");
         fieldCombo.removeAllItems();
         fieldCombo.setEnabled(false);
+        typeCombo.setEnabled(false);
         create.setEnabled(false);
         list.removeAll();
         list.revalidate();
@@ -73,6 +82,7 @@ final class IndexesPanel extends JPanel {
         fieldCombo.removeAllItems();
         schema.keySet().stream().filter(f -> !indexed.contains(f)).forEach(fieldCombo::addItem);
         fieldCombo.setEnabled(fieldCombo.getItemCount() > 0);
+        typeCombo.setEnabled(fieldCombo.getItemCount() > 0);
         create.setEnabled(fieldCombo.getItemCount() > 0);
 
         long bad = checks.stream().filter(c -> !c.ok()).count();
@@ -90,15 +100,23 @@ final class IndexesPanel extends JPanel {
     }
 
     private static JComponent view(IndexCheck check) {
-        JLabel title = new JLabel(check.field + "  (" + check.type + ")");
+        JLabel title = new JLabel(check.field + "  (" + check.type + ")  ·  " + check.indexType);
         title.setFont(Theme.BOLD);
         title.setForeground(Theme.TEXT);
-        JLabel status = new JLabel(check.ok() ? "✔ in sync" : check.error != null ? "✖ " + check.error : "✖ out of sync");
+        boolean rowsOk = check.rows.stream().allMatch(IndexCheck.Row::ok);
+        JLabel status = new JLabel(check.ok() ? "✔ in sync" : check.error != null ? "✖ could not be read"
+                : rowsOk ? "✖ wrong data structure" : "✖ out of sync");
         status.setForeground(check.ok() ? Theme.SUCCESS : Theme.ERROR);
-        JPanel head = new JPanel(new BorderLayout(12, 0));
+        JPanel head = new JPanel(new BorderLayout(12, 2));
         head.setOpaque(false);
         head.add(title, BorderLayout.WEST);
         head.add(status, BorderLayout.CENTER);
+        String detail = check.error != null ? check.error : check.structureProblem;
+        if (detail != null) {
+            JLabel d = new JLabel("<html>" + detail.replace("&", "&amp;").replace("<", "&lt;") + "</html>");
+            d.setForeground(Theme.ERROR);
+            head.add(d, BorderLayout.SOUTH);
+        }
 
         JPanel p = new JPanel(new BorderLayout(0, 6));
         p.setOpaque(false);
@@ -112,7 +130,7 @@ final class IndexesPanel extends JPanel {
     }
 
     private static JComponent table(IndexCheck check) {
-        boolean allOk = check.ok();
+        boolean allOk = check.rows.stream().allMatch(IndexCheck.Row::ok);
         String[] columns = allOk ? new String[]{"value", "keys"} : new String[]{"value", "keys in your index", "expected keys"};
         DefaultTableModel model = new DefaultTableModel(columns, 0) {
             @Override

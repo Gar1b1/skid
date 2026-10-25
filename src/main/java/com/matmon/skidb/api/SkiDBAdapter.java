@@ -24,9 +24,10 @@ import java.util.Map;
  * The UI converts what the user types to these classes before calling you. It can also send a
  * value of the wrong class on purpose, so your DBMS must check every value against the schema.
  * <p>
- * Stage C adds queries by value and indexes. An index on a field maps each value of that field
- * to the keys of the records that hold it, for example on firstName: "Israel" -> {1, 4, 8}.
- * Every add, update and delete must keep the collection's indexes up to date.
+ * Queries and indexes: an index on a field maps each value of that field to the keys of the
+ * records that hold it, for example on firstName: "Israel" -> {1, 4, 8}. Every add, update and
+ * delete must keep the collection's indexes up to date. Stage E adds index types (HASH / TREE)
+ * and range conditions ({@link Condition}).
  */
 public interface SkiDBAdapter {
 
@@ -101,26 +102,28 @@ public interface SkiDBAdapter {
      */
     Map<String, Map<String, Object>> getAllRecords(String collection) throws Exception;
 
-    // ---------------------------------------------------------------- stage C: indexes and queries
+    // ---------------------------------------------------------------- indexes and queries
 
     /**
      * Creates an index on a field of an existing collection, built from the records already in it.
      * The UI also calls this right after {@link #createCollection} for fields the user chose to
      * index at creation time.
      *
+     * @param type {@link IndexType#HASH} (for example a HashMap) or {@link IndexType#TREE} (for example a TreeMap)
      * @throws Exception if the collection does not exist, the field is not in the schema,
      *                   or the field is already indexed
      */
-    void createIndex(String collection, String field) throws Exception;
+    void createIndex(String collection, String field, IndexType type) throws Exception;
 
     /**
-     * @return the names of the indexed fields of the collection (empty if none, never null)
+     * @return every indexed field of the collection and its index type (empty if none, never null)
      * @throws Exception if the collection does not exist
      */
-    Collection<String> getIndexedFields(String collection) throws Exception;
+    Map<String, IndexType> getIndexes(String collection) throws Exception;
 
     /**
      * Returns the content of an index, so the UI can show it and check that it is up to date.
+     * For a {@link IndexType#TREE} index this must be a {@link java.util.SortedMap} (for example a TreeMap).
      *
      * @return field value -> keys of the records that hold this value,
      *         for example "Israel" -> {"1", "4", "8"}
@@ -129,13 +132,14 @@ public interface SkiDBAdapter {
     Map<?, ? extends Collection<String>> getIndex(String collection, String field) throws Exception;
 
     /**
-     * Returns every record whose fields equal ALL the given conditions.
-     * For example {"firstName" -> "Israel"} returns all records whose firstName is "Israel".
-     * Use the indexes of the conditions' fields, so the query does not scan the whole collection.
+     * Returns every record that satisfies ALL the conditions, for example
+     * [firstName = "Israel", age between 18 and 25].
+     * Use the indexes of the conditions' fields so the query does not scan the whole collection:
+     * any index helps an "=" condition, and a TREE index also helps range conditions.
      *
-     * @param conditions field name -> required value (a String, Integer or Boolean)
      * @return key -> record value of each matching record (empty if none match)
-     * @throws Exception if the collection does not exist or a condition's field is not in the schema
+     * @throws Exception if the collection does not exist, a condition's field is not in the schema,
+     *                   or a range operator is used on a Boolean field
      */
-    Map<String, Map<String, Object>> query(String collection, Map<String, Object> conditions) throws Exception;
+    Map<String, Map<String, Object>> query(String collection, List<Condition> conditions) throws Exception;
 }

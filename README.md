@@ -1,6 +1,6 @@
 # SkiDB UI
 
-ממשק גרפי (Swing) לתרגיל **SkiDB** (שלבים א–ג). אתם בונים את ה-DBMS, וה-UI הזה מאפשר ליצור אוספים, להוסיף / לקרוא / לעדכן / למחוק רשומות ולראות את כל מסד הנתונים בזמן העבודה.
+ממשק גרפי (Swing) לתרגיל **SkiDB** (שלבים א–ה). אתם בונים את ה-DBMS, וה-UI הזה מאפשר ליצור אוספים, להוסיף / לקרוא / לעדכן / למחוק רשומות ולראות את כל מסד הנתונים בזמן העבודה.
 
 ה-UI לא נוגע במימוש הפנימי שלכם. הוא מדבר עם ה-DBMS רק דרך ממשק (interface) אחד, `SkiDBAdapter`, כך שהתכנון (Design) נשאר שלכם.
 
@@ -9,12 +9,18 @@
 > **שלב ב (Integer ו-Boolean):** ראו את [מדריך שלב ב](docs/STUDENT_GUIDE_STAGE_B.md) והשתמשו ב-[skidb-ui-2.0.jar](dist/skidb-ui-2.0.jar).
 >
 > **שלב ג (שליפה לפי value ו-index):** ראו את [מדריך שלב ג](docs/STUDENT_GUIDE_STAGE_C.md) והשתמשו ב-[skidb-ui-3.0.jar](dist/skidb-ui-3.0.jar).
+>
+> **שלב ד:** אין UI חדש. המשיכו עם [skidb-ui-3.0.jar](dist/skidb-ui-3.0.jar).
+>
+> **שלב ה (index מסוג TreeMap ושליפה לפי טווח):** ראו את [מדריך שלב ה](docs/STUDENT_GUIDE_STAGE_E.md) והשתמשו ב-[skidb-ui-5.0.jar](dist/skidb-ui-5.0.jar).
 
 | שלב | JAR | מה נתמך |
 |---|---|---|
 | א | [skidb-ui-1.0.jar](dist/skidb-ui-1.0.jar) | `String` |
 | ב | [skidb-ui-2.0.jar](dist/skidb-ui-2.0.jar) | `String`, `Integer`, `Boolean` |
 | ג | [skidb-ui-3.0.jar](dist/skidb-ui-3.0.jar) | `String`, `Integer`, `Boolean` + שליפה לפי value ו-index |
+| ד | [skidb-ui-3.0.jar](dist/skidb-ui-3.0.jar) | כמו שלב ג (אין UI חדש) |
+| ה | [skidb-ui-5.0.jar](dist/skidb-ui-5.0.jar) | indexes מסוג `HASH` / `TREE` + שליפה לפי טווח (`>`, `>=`, `<`, `<=`, `between`) |
 
 ## בקצרה
 
@@ -46,4 +52,6 @@ mvn test-compile exec:java -Dexec.mainClass=com.matmon.skidb.demo.DemoLauncher -
 
 או: פתחו את הפרויקט ב-IntelliJ והריצו את `DemoLauncher.main`.
 
-לבנייה מחדש של ה-JAR אחרי שינוי בקוד: `mvn package`, ואז העתיקו את `target/skidb-ui-1.0.jar` ואת `target/skidb-ui-1.0-sources.jar` אל `dist/`.
+לבנייה מחדש של ה-JAR אחרי שינוי בקוד: `mvn package`, ואז העתיקו את `target/skidb-ui-<גרסה>.jar` ואת `target/skidb-ui-<גרסה>-sources.jar` אל `dist/`.
+
+הקוד של כל שלב נמצא בענף משלו: `stage-a` (1.0), `stage-b` (2.0), `stage-c` (3.0, משמש גם לשלב ד), ו-`main` (5.0, שלב ה). לתיקון ב-JAR ישן: ערכו את הענף שלו, הריצו שם `mvn package`, והעתיקו את ה-JAR החדש אל `dist/` ב-`main`.

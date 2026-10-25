@@ -6,7 +6,7 @@
 
     <groupId>com.matmon</groupId>
     <artifactId>skidb-ui</artifactId>
-    <version>3.0</version>
+    <version>5.0</version>
     <packaging>jar</packaging>
     <name>SkiDB UI</name>
     <description>Swing UI for the SkiDB (MatmonDB) exam - students plug in their DBMS via SkiDBAdapter</description>

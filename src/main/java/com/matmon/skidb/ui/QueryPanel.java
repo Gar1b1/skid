@@ -1,5 +1,9 @@
 package com.matmon.skidb.ui;
 
+import com.matmon.skidb.api.Condition;
+import com.matmon.skidb.api.Condition.Operator;
+import com.matmon.skidb.api.IndexType;
+
 import javax.swing.*;
 import javax.swing.border.EmptyBorder;
 import java.awt.*;
@@ -7,8 +11,8 @@ import java.util.*;
 import java.util.List;
 
 /**
- * The "Query" tab: build conditions (field = value, all must match), run them against the
- * student's query(), and see the results with timing and a check against a full scan.
+ * The "Query" tab: build conditions (field, operator, value - all must match), run them against
+ * the student's query(), and see the results with timing and a check against a full scan.
  */
 final class QueryPanel extends JPanel {
 
@@ -23,7 +27,7 @@ final class QueryPanel extends JPanel {
 
     private String collection;
     private Map<String, String> schema = Map.of();
-    private Collection<String> indexed = List.of();
+    private Map<String, IndexType> indexes = Map.of();
 
     QueryPanel(MainFrame frame) {
         super(new BorderLayout(0, 8));
@@ -54,17 +58,17 @@ final class QueryPanel extends JPanel {
 
         add(top, BorderLayout.NORTH);
         add(results, BorderLayout.CENTER);
-        setCollection(null, Map.of(), List.of());
+        setCollection(null, Map.of(), Map.of());
     }
 
     /** Shows the conditions for a collection. Conditions are kept if the collection and schema did not change. */
-    void setCollection(String name, Map<String, String> newSchema, Collection<String> newIndexed) {
+    void setCollection(String name, Map<String, String> newSchema, Map<String, IndexType> newIndexes) {
         boolean changed = !Objects.equals(name, collection) || !newSchema.equals(schema);
         collection = name;
         schema = new LinkedHashMap<>(newSchema);
-        indexed = new ArrayList<>(newIndexed);
+        indexes = new LinkedHashMap<>(newIndexes);
         subtitle.setText(name == null ? "Select a collection first."
-                : "Find the records in \"" + name + "\" whose fields equal ALL the conditions.");
+                : "Find the records in \"" + name + "\" that satisfy ALL the conditions. Ranges use a TREE index.");
         addCondition.setEnabled(name != null && !schema.isEmpty());
         run.setEnabled(name != null && !schema.isEmpty());
         if (changed) {
@@ -73,7 +77,7 @@ final class QueryPanel extends JPanel {
             status.setText(" ");
             results.clear();
             if (name != null && !schema.isEmpty()) {
-                addCondition(indexed.isEmpty() ? null : indexed.iterator().next());
+                addCondition(indexes.isEmpty() ? null : indexes.keySet().iterator().next());
             }
         }
         conditions.forEach(ConditionRow::refreshIndexed);
@@ -103,57 +107,56 @@ final class QueryPanel extends JPanel {
     }
 
     private void runQuery() {
-        Map<String, Object> values = new LinkedHashMap<>();
+        List<Condition> list = new ArrayList<>();
         for (ConditionRow row : conditions) {
-            String field = (String) row.field.getSelectedItem();
-            if (values.containsKey(field)) {
-                warn("Field \"" + field + "\" appears in more than one condition.");
-                return;
-            }
             try {
-                values.put(field, FieldTypes.parse((String) row.type.getSelectedItem(), row.value.getText()));
+                list.add(row.toCondition());
             } catch (IllegalArgumentException e) {
-                warn("Field \"" + field + "\": " + e.getMessage());
+                warn(e.getMessage());
                 return;
             }
         }
-        if (values.isEmpty()) {
+        if (list.isEmpty()) {
             warn("Add at least one condition.");
             return;
         }
-        frame.runQuery(values);
+        frame.runQuery(list);
     }
 
     private void warn(String message) {
         JOptionPane.showMessageDialog(this, message, "Query", JOptionPane.WARNING_MESSAGE);
     }
 
-    /** field [combo]  =  value [text]  as [type]  (indexed)  ✕ */
+    /** field [combo]  operator [combo]  value [text]  (and [text])  as [type]  ✕, with the index hint below */
     private final class ConditionRow extends JPanel {
         final JComboBox<String> field = new JComboBox<>(schema.keySet().toArray(new String[0]));
+        final JComboBox<Operator> operator = new JComboBox<>(Operator.values());
         final JTextField value = Theme.field();
+        final JLabel and = Theme.muted("and");
+        final JTextField to = Theme.field();
         final JComboBox<String> type = new JComboBox<>(FieldTypes.ALL);
         final JLabel indexedLabel = new JLabel();
 
         ConditionRow(String initialField) {
-            super(new FlowLayout(FlowLayout.LEFT, 6, 0));
+            super(new BorderLayout(0, 2));
             setOpaque(false);
             setBorder(new EmptyBorder(0, 0, 6, 0));
-            field.setPreferredSize(new Dimension(150, 30));
-            field.setBorder(BorderFactory.createLineBorder(Theme.BORDER));
-            value.setColumns(14);
-            type.setPreferredSize(new Dimension(92, 30));
-            type.setBorder(BorderFactory.createLineBorder(Theme.BORDER));
-            type.setToolTipText("Send this value as");
-            field.addActionListener(e -> {
-                type.setSelectedItem(schema.getOrDefault((String) field.getSelectedItem(), FieldTypes.STRING));
-                refreshIndexed();
-            });
+            JPanel controls = new JPanel(new FlowLayout(FlowLayout.LEFT, 6, 0));
+            controls.setOpaque(false);
+            indexedLabel.setBorder(new EmptyBorder(0, 8, 0, 0));
+            style(field, 130);
+            style(operator, 90);
+            style(type, 88);
+            value.setColumns(8);
+            to.setColumns(8);
+            type.setToolTipText("Send the value(s) as");
+            field.addActionListener(e -> onFieldChanged());
+            operator.setToolTipText("Range operators are not used on Boolean fields");
+            operator.addActionListener(e -> onOperatorChanged());
             type.addActionListener(e -> type.setForeground(
                     Objects.equals(type.getSelectedItem(), schema.get((String) field.getSelectedItem())) ? Theme.TEXT : Theme.ERROR));
-            field.setSelectedItem(initialField);
-            type.setSelectedItem(schema.getOrDefault(initialField, FieldTypes.STRING));
             value.addActionListener(e -> runQuery());
+            to.addActionListener(e -> runQuery());
             JButton remove = Theme.button("✕");
             remove.addActionListener(e -> {
                 conditions.remove(this);
@@ -161,20 +164,76 @@ final class QueryPanel extends JPanel {
                 conditionsPanel.revalidate();
                 conditionsPanel.repaint();
             });
-            add(field);
-            add(Theme.label("="));
-            add(value);
-            add(Theme.muted("as"));
-            add(type);
-            add(remove);
-            add(indexedLabel);
+            controls.add(field);
+            controls.add(operator);
+            controls.add(value);
+            controls.add(and);
+            controls.add(to);
+            controls.add(Theme.muted("as"));
+            controls.add(type);
+            controls.add(remove);
+            add(controls, BorderLayout.NORTH);
+            add(indexedLabel, BorderLayout.SOUTH);
+            field.setSelectedItem(initialField);
+            operator.setSelectedItem(Operator.EQUALS);
+            onFieldChanged();
+            onOperatorChanged();
+        }
+
+        private void onFieldChanged() {
+            String t = schema.getOrDefault((String) field.getSelectedItem(), FieldTypes.STRING);
+            type.setSelectedItem(t);
+            if (FieldTypes.BOOLEAN.equals(t)) {
+                operator.setSelectedItem(Operator.EQUALS);
+            }
+            operator.setEnabled(!FieldTypes.BOOLEAN.equals(t));
             refreshIndexed();
         }
 
+        private void onOperatorChanged() {
+            boolean between = operator.getSelectedItem() == Operator.BETWEEN;
+            and.setVisible(between);
+            to.setVisible(between);
+            refreshIndexed();
+            revalidate();
+        }
+
+        Condition toCondition() {
+            String f = (String) field.getSelectedItem();
+            Operator op = (Operator) operator.getSelectedItem();
+            String t = (String) type.getSelectedItem();
+            Object from = parse(f, t, value.getText());
+            Object upper = op == Operator.BETWEEN ? parse(f, t, to.getText()) : null;
+            return new Condition(f, op, from, upper);
+        }
+
+        private Object parse(String f, String t, String text) {
+            try {
+                return FieldTypes.parse(t, text);
+            } catch (IllegalArgumentException e) {
+                throw new IllegalArgumentException("Field \"" + f + "\": " + e.getMessage());
+            }
+        }
+
+        /** Shows which index, if any, can answer this condition. */
         void refreshIndexed() {
-            boolean isIndexed = indexed.contains((String) field.getSelectedItem());
-            indexedLabel.setText(isIndexed ? "indexed" : "not indexed");
-            indexedLabel.setForeground(isIndexed ? Theme.ACCENT : Theme.MUTED);
+            IndexType index = indexes.get((String) field.getSelectedItem());
+            boolean range = operator.getSelectedItem() != Operator.EQUALS;
+            if (index == null) {
+                indexedLabel.setText("not indexed");
+                indexedLabel.setForeground(Theme.MUTED);
+            } else if (range && index == IndexType.HASH) {
+                indexedLabel.setText("HASH index — can't help a range");
+                indexedLabel.setForeground(Theme.MUTED);
+            } else {
+                indexedLabel.setText(index + " index");
+                indexedLabel.setForeground(Theme.ACCENT);
+            }
+        }
+
+        private static void style(JComboBox<?> combo, int width) {
+            combo.setPreferredSize(new Dimension(width, 30));
+            combo.setBorder(BorderFactory.createLineBorder(Theme.BORDER));
         }
     }
 }

@@ -1,5 +1,7 @@
 package com.matmon.skidb.ui;
 
+import com.matmon.skidb.api.Condition;
+import com.matmon.skidb.api.IndexType;
 import com.matmon.skidb.api.SkiDBAdapter;
 
 import javax.swing.*;
@@ -90,7 +92,7 @@ final class MainFrame extends JFrame {
         brand.setFont(Theme.BRAND);
         brand.setForeground(Theme.TEXT);
 
-        JLabel title = new JLabel("SkiDB — Stage C", SwingConstants.CENTER);
+        JLabel title = new JLabel("SkiDB — Stage E", SwingConstants.CENTER);
         title.setFont(Theme.TITLE);
         title.setForeground(Theme.TEXT);
 
@@ -230,34 +232,34 @@ final class MainFrame extends JFrame {
             currentChecks = List.of();
             records.clear();
             indexes.clear();
-            query.setCollection(null, Map.of(), List.of());
+            query.setCollection(null, Map.of(), Map.of());
             form.setCollection(null, Map.of());
             updateIndexesTab();
             return;
         }
         currentSchema = call("getSchema(\"" + name + "\")", () -> adapter.getSchema(name), false).orElse(Map.of());
         currentRecords = call("getAllRecords(\"" + name + "\")", () -> adapter.getAllRecords(name), false).orElse(Map.of());
-        List<String> indexed = call("getIndexedFields(\"" + name + "\")", () -> adapter.getIndexedFields(name), false)
-                .<List<String>>map(ArrayList::new).orElse(new ArrayList<>());
-        currentChecks = indexed.stream().map(field -> checkIndex(name, field)).toList();
+        Map<String, IndexType> indexed = call("getIndexes(\"" + name + "\")", () -> adapter.getIndexes(name), false)
+                .<Map<String, IndexType>>map(LinkedHashMap::new).orElse(new LinkedHashMap<>());
+        currentChecks = indexed.entrySet().stream().map(e -> checkIndex(name, e.getKey(), e.getValue())).toList();
 
         records.show(name, currentSchema, indexed, currentRecords);
         query.setCollection(name, currentSchema, indexed);
-        indexes.show(currentSchema, indexed, currentChecks);
+        indexes.show(currentSchema, indexed.keySet(), currentChecks);
         form.setCollection(name, currentSchema);
         updateIndexesTab();
     }
 
-    private IndexCheck checkIndex(String collection, String field) {
+    private IndexCheck checkIndex(String collection, String field, IndexType indexType) {
         String type = currentSchema.getOrDefault(field, "?");
         try {
             Map<?, ? extends Collection<?>> index = adapter.getIndex(collection, field);
             if (index == null) {
-                return IndexCheck.failed(field, type, "getIndex returned null");
+                return IndexCheck.failed(field, type, indexType, "getIndex returned null");
             }
-            return IndexCheck.of(field, type, index, currentRecords);
+            return IndexCheck.of(field, type, indexType, index, currentRecords);
         } catch (Throwable t) {
-            return IndexCheck.failed(field, type, describe(t));
+            return IndexCheck.failed(field, type, indexType, describe(t));
         }
     }
 
@@ -277,11 +279,10 @@ final class MainFrame extends JFrame {
 
     // ---------------------------------------------------------------- operations
 
-    void createCollection(String name, Map<String, String> schema, List<String> indexedFields) {
+    void createCollection(String name, Map<String, String> schema, Map<String, IndexType> indexedFields) {
         if (run("Create collection \"" + name + "\" " + format(schema), () -> adapter.createCollection(name, schema))) {
-            for (String field : indexedFields) {
-                run("Create index on \"" + field + "\" in \"" + name + "\"", () -> adapter.createIndex(name, field));
-            }
+            indexedFields.forEach((field, type) -> run("Create " + type + " index on \"" + field + "\" in \"" + name + "\"",
+                    () -> adapter.createIndex(name, field, type)));
             currentCollection = name;
             refreshAll();
             reportIndexProblems();
@@ -294,9 +295,9 @@ final class MainFrame extends JFrame {
         }
     }
 
-    void createIndex(String field) {
+    void createIndex(String field, IndexType type) {
         String c = currentCollection;
-        if (run("Create index on \"" + field + "\" in \"" + c + "\"", () -> adapter.createIndex(c, field))) {
+        if (run("Create " + type + " index on \"" + field + "\" in \"" + c + "\"", () -> adapter.createIndex(c, field, type))) {
             refreshAll();
             reportIndexProblems();
         }
@@ -344,10 +345,11 @@ final class MainFrame extends JFrame {
      * Runs a query, times it, and compares its result with a full scan of the records,
      * so a wrong or incomplete index shows up as missing or unexpected keys.
      */
-    void runQuery(Map<String, Object> conditions) {
+    void runQuery(List<Condition> conditions) {
         String c = currentCollection;
         long[] nanos = new long[1];
-        Optional<Map<String, Map<String, Object>>> result = call("Query \"" + c + "\" where " + format(conditions), () -> {
+        String where = conditions.stream().map(Condition::toString).collect(Collectors.joining(" AND "));
+        Optional<Map<String, Map<String, Object>>> result = call("Query \"" + c + "\" where " + where, () -> {
             long start = System.nanoTime();
             Map<String, Map<String, Object>> r = adapter.query(c, conditions);
             nanos[0] = System.nanoTime() - start;
@@ -361,7 +363,7 @@ final class MainFrame extends JFrame {
 
         Set<String> expected = new HashSet<>();
         currentRecords.forEach((key, value) -> {
-            if (value != null && conditions.entrySet().stream().allMatch(e -> Objects.equals(value.get(e.getKey()), e.getValue()))) {
+            if (ConditionCheck.matchesAll(value, conditions)) {
                 expected.add(key);
             }
         });
@@ -371,15 +373,25 @@ final class MainFrame extends JFrame {
         unexpected.removeAll(expected);
         boolean ok = missing.isEmpty() && unexpected.isEmpty();
 
-        List<String> indexed = currentChecks.stream().map(ch -> ch.field).toList();
-        List<String> used = conditions.keySet().stream().filter(indexed::contains).toList();
-        List<String> notIndexed = conditions.keySet().stream().filter(f -> !indexed.contains(f)).toList();
+        Map<String, IndexType> indexed = new HashMap<>();
+        currentChecks.forEach(ch -> indexed.put(ch.field, ch.indexType));
+        List<String> used = new ArrayList<>();
+        List<String> notUsed = new ArrayList<>();
+        for (Condition cond : conditions) {
+            IndexType t = indexed.get(cond.field());
+            boolean range = cond.operator() != Condition.Operator.EQUALS;
+            if (t == IndexType.TREE || (t == IndexType.HASH && !range)) {
+                used.add(cond.field() + " " + cond.operator().symbol() + " (" + t + ")");
+            } else {
+                notUsed.add(cond.field() + " " + cond.operator().symbol() + (t == IndexType.HASH ? " (HASH can't help a range)" : ""));
+            }
+        }
         String time = String.format("%.3f ms", nanos[0] / 1_000_000.0);
         String summary = found.size() + (found.size() == 1 ? " result" : " results") + " in " + time
                 + " · " + currentRecords.size() + " records in the collection";
-        String indexLine = (used.isEmpty() ? "" : "indexed: " + String.join(", ", used))
-                + (used.isEmpty() || notIndexed.isEmpty() ? "" : " · ")
-                + (notIndexed.isEmpty() ? "" : "not indexed: " + String.join(", ", notIndexed) + " (may scan every record)");
+        String indexLine = (used.isEmpty() ? "" : "can use an index: " + String.join(", ", used))
+                + (used.isEmpty() || notUsed.isEmpty() ? "" : " · ")
+                + (notUsed.isEmpty() ? "" : "no usable index: " + String.join(", ", notUsed));
         String check = ok ? "✔ Same records as a full scan of the collection"
                 : "✖ Different from a full scan of the collection"
                 + (missing.isEmpty() ? "" : " · missing keys " + RecordTable.sortedKeys(missing))
@@ -463,7 +475,7 @@ final class MainFrame extends JFrame {
         log.info("Database structure — " + names.size() + " collection(s)");
         for (String name : names) {
             Map<String, String> schema = call("getSchema(\"" + name + "\")", () -> adapter.getSchema(name), false).orElse(null);
-            Collection<String> indexed = call("getIndexedFields(\"" + name + "\")", () -> adapter.getIndexedFields(name), false).orElse(null);
+            Map<String, IndexType> indexed = call("getIndexes(\"" + name + "\")", () -> adapter.getIndexes(name), false).orElse(null);
             Map<String, Map<String, Object>> recs = call("getAllRecords(\"" + name + "\")", () -> adapter.getAllRecords(name), false).orElse(null);
             log.info("  " + name + "  schema " + (schema == null ? "?" : format(schema))
                     + "  indexes " + (indexed == null ? "?" : indexed));

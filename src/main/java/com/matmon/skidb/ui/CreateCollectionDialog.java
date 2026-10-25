@@ -1,5 +1,7 @@
 package com.matmon.skidb.ui;
 
+import com.matmon.skidb.api.IndexType;
+
 import javax.swing.*;
 import javax.swing.border.EmptyBorder;
 import java.awt.*;
@@ -11,13 +13,15 @@ import java.util.Map;
 /** Modal dialog that asks for a collection name and its schema (field name + type). */
 final class CreateCollectionDialog extends JDialog {
 
+    private static final String NO_INDEX = "No index";
+
     private final JTextField nameField = Theme.field();
     private final JPanel rowsPanel = new JPanel();
     private final List<FieldRow> rows = new ArrayList<>();
 
     private String collectionName;
     private Map<String, String> schema;
-    private List<String> indexedFields;
+    private Map<String, IndexType> indexedFields;
 
     CreateCollectionDialog(Window owner) {
         super(owner, "New collection", ModalityType.APPLICATION_MODAL);
@@ -84,8 +88,8 @@ final class CreateCollectionDialog extends JDialog {
         return schema;
     }
 
-    /** @return the fields to create an index on, in the order entered */
-    List<String> getIndexedFields() {
+    /** @return the fields to create an index on and the index type, in the order entered */
+    Map<String, IndexType> getIndexedFields() {
         return indexedFields;
     }
 
@@ -112,7 +116,7 @@ final class CreateCollectionDialog extends JDialog {
             return;
         }
         Map<String, String> result = new LinkedHashMap<>();
-        List<String> indexed = new ArrayList<>();
+        Map<String, IndexType> indexed = new LinkedHashMap<>();
         for (FieldRow row : rows) {
             String field = row.name.getText().trim();
             if (field.isEmpty()) {
@@ -123,8 +127,8 @@ final class CreateCollectionDialog extends JDialog {
                 return;
             }
             result.put(field, (String) row.type.getSelectedItem());
-            if (row.index.isSelected()) {
-                indexed.add(field);
+            if (row.index.getSelectedItem() instanceof IndexType t) {
+                indexed.put(field, t);
             }
         }
         collectionName = name;
@@ -140,7 +144,7 @@ final class CreateCollectionDialog extends JDialog {
     private final class FieldRow extends JPanel {
         final JTextField name = Theme.field();
         final JComboBox<String> type = new JComboBox<>(FieldTypes.ALL);
-        final JCheckBox index = new JCheckBox("Index");
+        final JComboBox<Object> index = new JComboBox<>(new Object[]{NO_INDEX, IndexType.HASH, IndexType.TREE});
 
         FieldRow(String fieldName, String fieldType) {
             super(new BorderLayout(8, 0));
@@ -158,10 +162,9 @@ final class CreateCollectionDialog extends JDialog {
 
             JPanel east = new JPanel(new BorderLayout(8, 0));
             east.setOpaque(false);
-            index.setOpaque(false);
-            index.setForeground(Theme.TEXT);
-            index.setFocusPainted(false);
-            index.setToolTipText("Create an index on this field");
+            index.setPreferredSize(new Dimension(100, 28));
+            index.setBorder(BorderFactory.createLineBorder(Theme.BORDER));
+            index.setToolTipText("Create an index on this field: HASH for \"=\" lookups, TREE also for ranges");
             JPanel typeAndIndex = new JPanel(new BorderLayout(8, 0));
             typeAndIndex.setOpaque(false);
             typeAndIndex.add(type, BorderLayout.CENTER);

@@ -1,5 +1,7 @@
 package com.matmon.skidb.demo;
 
+import com.matmon.skidb.api.Condition;
+import com.matmon.skidb.api.IndexType;
 import com.matmon.skidb.api.SkiDBAdapter;
 
 import java.util.*;
@@ -13,9 +15,9 @@ public class InMemoryDemoAdapter implements SkiDBAdapter {
     private static final Map<String, Class<?>> TYPES = Map.of(
             "String", String.class, "Integer", Integer.class, "Boolean", Boolean.class);
 
-    /** indexes: field -> (value -> keys) */
+    /** indexes: field -> (value -> keys); indexTypes: field -> HASH / TREE */
     private record Collection(Map<String, String> schema, Map<String, Map<String, Object>> records,
-                              Map<String, Map<Object, Set<String>>> indexes) {
+                              Map<String, Map<Object, Set<String>>> indexes, Map<String, IndexType> indexTypes) {
     }
 
     private final Map<String, Collection> collections = new LinkedHashMap<>();
@@ -30,7 +32,7 @@ public class InMemoryDemoAdapter implements SkiDBAdapter {
                 throw new IllegalArgumentException("Unsupported type " + type + " for field " + field);
             }
         });
-        collections.put(name, new Collection(new LinkedHashMap<>(schema), new LinkedHashMap<>(), new LinkedHashMap<>()));
+        collections.put(name, new Collection(new LinkedHashMap<>(schema), new LinkedHashMap<>(), new LinkedHashMap<>(), new LinkedHashMap<>()));
     }
 
     @Override
@@ -92,7 +94,7 @@ public class InMemoryDemoAdapter implements SkiDBAdapter {
     }
 
     @Override
-    public void createIndex(String collection, String field) {
+    public void createIndex(String collection, String field, IndexType type) {
         Collection c = get(collection);
         if (!c.schema().containsKey(field)) {
             throw new IllegalArgumentException("Field \"" + field + "\" is not in the schema");
@@ -100,14 +102,15 @@ public class InMemoryDemoAdapter implements SkiDBAdapter {
         if (c.indexes().containsKey(field)) {
             throw new IllegalArgumentException("Field \"" + field + "\" is already indexed");
         }
-        Map<Object, Set<String>> index = new HashMap<>();
+        Map<Object, Set<String>> index = type == IndexType.TREE ? new TreeMap<>() : new HashMap<>();
         c.records().forEach((key, value) -> index.computeIfAbsent(value.get(field), v -> new HashSet<>()).add(key));
         c.indexes().put(field, index);
+        c.indexTypes().put(field, type);
     }
 
     @Override
-    public List<String> getIndexedFields(String collection) {
-        return new ArrayList<>(get(collection).indexes().keySet());
+    public Map<String, IndexType> getIndexes(String collection) {
+        return new LinkedHashMap<>(get(collection).indexTypes());
     }
 
     @Override
@@ -119,33 +122,92 @@ public class InMemoryDemoAdapter implements SkiDBAdapter {
         return index;
     }
 
-    /** Starts from the smallest index candidate set, then checks the remaining conditions; scans only without an index. */
+    /**
+     * Starts from the smallest candidate key set any index can give (HASH: "=" only, TREE: "=" and
+     * ranges), then checks every condition on those records; scans only when no index helps.
+     */
     @Override
-    public Map<String, Map<String, Object>> query(String collection, Map<String, Object> conditions) {
+    public Map<String, Map<String, Object>> query(String collection, List<Condition> conditions) {
         Collection c = get(collection);
-        for (String field : conditions.keySet()) {
-            if (!c.schema().containsKey(field)) {
-                throw new IllegalArgumentException("Field \"" + field + "\" is not in the schema");
+        for (Condition cond : conditions) {
+            String type = c.schema().get(cond.field());
+            if (type == null) {
+                throw new IllegalArgumentException("Field \"" + cond.field() + "\" is not in the schema");
+            }
+            if (type.equals("Boolean") && cond.operator() != Condition.Operator.EQUALS) {
+                throw new IllegalArgumentException("Range operator " + cond.operator() + " on Boolean field \"" + cond.field() + "\"");
             }
         }
         java.util.Collection<String> candidates = c.records().keySet();
-        for (Map.Entry<String, Object> e : conditions.entrySet()) {
-            Map<Object, Set<String>> index = c.indexes().get(e.getKey());
-            if (index != null) {
-                Set<String> keys = index.getOrDefault(e.getValue(), Set.of());
-                if (keys.size() < candidates.size()) {
-                    candidates = keys;
-                }
+        for (Condition cond : conditions) {
+            Set<String> keys = candidates(c, cond);
+            if (keys != null && keys.size() < candidates.size()) {
+                candidates = keys;
             }
         }
         Map<String, Map<String, Object>> result = new LinkedHashMap<>();
         for (String key : candidates) {
             Map<String, Object> value = c.records().get(key);
-            if (conditions.entrySet().stream().allMatch(e -> Objects.equals(value.get(e.getKey()), e.getValue()))) {
+            if (conditions.stream().allMatch(cond -> matches(cond, value.get(cond.field())))) {
                 result.put(key, new HashMap<>(value));
             }
         }
         return result;
+    }
+
+    /** The keys an index gives for a condition, or null if no index on the field can answer it. */
+    private static Set<String> candidates(Collection c, Condition cond) {
+        Map<Object, Set<String>> index = c.indexes().get(cond.field());
+        Class<?> type = TYPES.get(c.schema().get(cond.field()));
+        if (index == null) {
+            return null;
+        }
+        if (!type.isInstance(cond.value()) || (cond.operator() == Condition.Operator.BETWEEN && !type.isInstance(cond.to()))) {
+            return Set.of(); // a value of the wrong type matches nothing
+        }
+        if (cond.operator() == Condition.Operator.EQUALS) {
+            return index.getOrDefault(cond.value(), Set.of());
+        }
+        if (!(index instanceof NavigableMap<Object, Set<String>> tree)) {
+            return null; // a HASH index cannot answer a range
+        }
+        Map<Object, Set<String>> range = switch (cond.operator()) {
+            case GREATER_THAN -> tree.tailMap(cond.value(), false);
+            case GREATER_OR_EQUAL -> tree.tailMap(cond.value(), true);
+            case LESS_THAN -> tree.headMap(cond.value(), false);
+            case LESS_OR_EQUAL -> tree.headMap(cond.value(), true);
+            case BETWEEN -> compare(cond.value(), cond.to()) > 0 ? Map.of() : tree.subMap(cond.value(), true, cond.to(), true);
+            case EQUALS -> throw new IllegalStateException();
+        };
+        Set<String> keys = new HashSet<>();
+        range.values().forEach(keys::addAll);
+        return keys;
+    }
+
+    private static boolean matches(Condition cond, Object v) {
+        if (v == null) {
+            return false;
+        }
+        if (cond.operator() == Condition.Operator.EQUALS) {
+            return v.equals(cond.value());
+        }
+        if (cond.value() == null || v.getClass() != cond.value().getClass()) {
+            return false;
+        }
+        int cmp = compare(v, cond.value());
+        return switch (cond.operator()) {
+            case GREATER_THAN -> cmp > 0;
+            case GREATER_OR_EQUAL -> cmp >= 0;
+            case LESS_THAN -> cmp < 0;
+            case LESS_OR_EQUAL -> cmp <= 0;
+            case BETWEEN -> cmp >= 0 && cond.to() != null && v.getClass() == cond.to().getClass() && compare(v, cond.to()) <= 0;
+            case EQUALS -> true;
+        };
+    }
+
+    @SuppressWarnings({"unchecked", "rawtypes"})
+    private static int compare(Object a, Object b) {
+        return ((Comparable) a).compareTo(b);
     }
 
     private Collection get(String name) {
