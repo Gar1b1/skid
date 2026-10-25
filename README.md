@@ -35,7 +35,7 @@ public class Main {
 
 ## למדריך: הרצת הדמו
 
-בתיקייה `src/test/java/com/matmon/skidb/demo` יש Adapter לדוגמה ו-`DemoLauncher`. הדמו פותח את ה-UI עם האוסף לדוגמה מהתרגיל. הקוד הזה נמצא רק ב-test scope ו**לא** נכלל ב-JAR.
+בתיקייה `src/test/java/com/matmon/skidb/demo` יש Adapter לדוגמה ו-`DemoLauncher`. הדמו פותח את ה-UI עם מסד נתונים ריק. הקוד הזה נמצא רק ב-test scope ו**לא** נכלל ב-JAR.
 
 ```bash
 mvn test-compile exec:java -Dexec.mainClass=com.matmon.skidb.demo.DemoLauncher -Dexec.classpathScope=test
