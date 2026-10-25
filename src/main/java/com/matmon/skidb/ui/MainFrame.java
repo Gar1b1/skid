@@ -44,7 +44,7 @@ final class MainFrame extends JFrame {
         JPanel workspace = new JPanel(new BorderLayout(10, 0));
         workspace.setBackground(Theme.BG);
         collections.setPreferredSize(new Dimension(220, 0));
-        form.setPreferredSize(new Dimension(340, 0));
+        form.setPreferredSize(new Dimension(400, 0));
         workspace.add(collections, BorderLayout.WEST);
         workspace.add(records, BorderLayout.CENTER);
         workspace.add(form, BorderLayout.EAST);
@@ -57,7 +57,7 @@ final class MainFrame extends JFrame {
         body.add(log, BorderLayout.SOUTH);
         add(body, BorderLayout.CENTER);
 
-        setSize(1200, 760);
+        setSize(1260, 780);
         setMinimumSize(new Dimension(1000, 600));
         setLocationRelativeTo(null);
 
@@ -70,7 +70,7 @@ final class MainFrame extends JFrame {
         brand.setFont(Theme.BRAND);
         brand.setForeground(Theme.TEXT);
 
-        JLabel title = new JLabel("SkiDB — Stage A", SwingConstants.CENTER);
+        JLabel title = new JLabel("SkiDB — Stage B", SwingConstants.CENTER);
         title.setFont(Theme.TITLE);
         title.setForeground(Theme.TEXT);
 

@@ -11,9 +11,6 @@ import java.util.Map;
 /** Modal dialog that asks for a collection name and its schema (field name + type). */
 final class CreateCollectionDialog extends JDialog {
 
-    /** Stage A supports String fields only. */
-    private static final String[] TYPES = {"String"};
-
     private final JTextField nameField = Theme.field();
     private final JPanel rowsPanel = new JPanel();
     private final List<FieldRow> rows = new ArrayList<>();
@@ -48,7 +45,7 @@ final class CreateCollectionDialog extends JDialog {
         scroll.setPreferredSize(new Dimension(420, 200));
 
         JButton addField = Theme.button("+ Add field");
-        addField.addActionListener(e -> addRow(""));
+        addField.addActionListener(e -> addRow("", FieldTypes.STRING));
         JButton cancel = Theme.button("Cancel");
         cancel.addActionListener(e -> dispose());
         JButton create = Theme.button("Create", true);
@@ -67,8 +64,8 @@ final class CreateCollectionDialog extends JDialog {
         content.add(scroll, BorderLayout.CENTER);
         content.add(bottom, BorderLayout.SOUTH);
 
-        addRow("firstName");
-        addRow("lastName");
+        addRow("firstName", FieldTypes.STRING);
+        addRow("lastName", FieldTypes.STRING);
 
         getRootPane().setDefaultButton(create);
         getRootPane().registerKeyboardAction(e -> dispose(),
@@ -87,8 +84,8 @@ final class CreateCollectionDialog extends JDialog {
         return schema;
     }
 
-    private void addRow(String fieldName) {
-        FieldRow row = new FieldRow(fieldName);
+    private void addRow(String fieldName, String type) {
+        FieldRow row = new FieldRow(fieldName, type);
         rows.add(row);
         rowsPanel.add(row);
         rowsPanel.revalidate();
@@ -132,16 +129,17 @@ final class CreateCollectionDialog extends JDialog {
 
     private final class FieldRow extends JPanel {
         final JTextField name = Theme.field();
-        final JComboBox<String> type = new JComboBox<>(TYPES);
+        final JComboBox<String> type = new JComboBox<>(FieldTypes.ALL);
 
-        FieldRow(String fieldName) {
+        FieldRow(String fieldName, String fieldType) {
             super(new BorderLayout(8, 0));
             setOpaque(false);
             setBorder(new EmptyBorder(0, 0, 6, 0));
             setMaximumSize(new Dimension(Integer.MAX_VALUE, 36));
             name.setText(fieldName);
             name.setToolTipText("Field name");
-            type.setToolTipText("Stage A supports String fields only");
+            type.setSelectedItem(fieldType);
+            type.setToolTipText("Field type");
             type.setPreferredSize(new Dimension(110, 28));
             JButton remove = Theme.button("✕");
             remove.setToolTipText("Remove field");

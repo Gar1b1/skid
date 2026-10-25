@@ -13,10 +13,12 @@ public class DemoLauncher {
         Map<String, String> schema = new LinkedHashMap<>();
         schema.put("firstName", "String");
         schema.put("lastName", "String");
+        schema.put("age", "Integer");
+        schema.put("isCommander", "Boolean");
         db.createCollection("matmonDB", schema);
-        db.addRecord("matmonDB", "1", Map.of("firstName", "Israel", "lastName", "Israeli"));
-        db.addRecord("matmonDB", "2", Map.of("firstName", "Ploni", "lastName", "Almoni"));
-        db.addRecord("matmonDB", "3", Map.of("firstName", "John", "lastName", "Doe"));
+        db.addRecord("matmonDB", "1", Map.of("firstName", "Israel", "lastName", "Israeli", "age", 21, "isCommander", true));
+        db.addRecord("matmonDB", "2", Map.of("firstName", "Ploni", "lastName", "Almoni", "age", 19, "isCommander", false));
+        db.addRecord("matmonDB", "3", Map.of("firstName", "John", "lastName", "Doe", "age", 20, "isCommander", false));
         SkiDBUI.launch(db);
     }
 }

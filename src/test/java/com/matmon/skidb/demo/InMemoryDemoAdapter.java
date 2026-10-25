@@ -13,6 +13,9 @@ public class InMemoryDemoAdapter implements SkiDBAdapter {
     private record Collection(Map<String, String> schema, Map<String, Map<String, Object>> records) {
     }
 
+    private static final Map<String, Class<?>> TYPES = Map.of(
+            "String", String.class, "Integer", Integer.class, "Boolean", Boolean.class);
+
     private final Map<String, Collection> collections = new LinkedHashMap<>();
 
     @Override
@@ -21,7 +24,7 @@ public class InMemoryDemoAdapter implements SkiDBAdapter {
             throw new IllegalArgumentException("Collection \"" + name + "\" already exists");
         }
         schema.forEach((field, type) -> {
-            if (!"String".equals(type)) {
+            if (!TYPES.containsKey(type)) {
                 throw new IllegalArgumentException("Unsupported type " + type + " for field " + field);
             }
         });
@@ -97,17 +100,22 @@ public class InMemoryDemoAdapter implements SkiDBAdapter {
         return value;
     }
 
-    /** Strict schema: exactly the schema's fields, each a String. */
+    /** Strict schema: exactly the schema's fields, each of its schema type. */
     private static void validate(Map<String, String> schema, Map<String, Object> value) {
         for (String field : value.keySet()) {
             if (!schema.containsKey(field)) {
                 throw new IllegalArgumentException("Field \"" + field + "\" is not in the schema");
             }
         }
-        for (String field : schema.keySet()) {
-            if (!(value.get(field) instanceof String)) {
-                throw new IllegalArgumentException("Field \"" + field + "\" is missing or not a String");
+        schema.forEach((field, type) -> {
+            Object v = value.get(field);
+            if (v == null) {
+                throw new IllegalArgumentException("Field \"" + field + "\" is missing");
             }
-        }
+            if (!TYPES.get(type).isInstance(v)) {
+                throw new IllegalArgumentException("Field \"" + field + "\" must be " + type
+                        + " but got " + v.getClass().getSimpleName());
+            }
+        });
     }
 }

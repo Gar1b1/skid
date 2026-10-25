@@ -70,6 +70,11 @@ final class Theme {
         put("ComboBox.selectionForeground", TEXT);
         put("ComboBox.disabledBackground", FIELD);
         put("ComboBox.disabledForeground", MUTED);
+        put("ComboBox.buttonBackground", FIELD);
+        put("ComboBox.buttonShadow", BORDER);
+        put("ComboBox.buttonDarkShadow", MUTED);
+        put("ComboBox.buttonHighlight", FIELD);
+        UIManager.put("ComboBox.border", BorderFactory.createLineBorder(BORDER));
         put("SplitPane.background", BG);
         put("SplitPaneDivider.draggingColor", ACCENT);
         put("ToolTip.background", FIELD);

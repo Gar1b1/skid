@@ -5,6 +5,13 @@
 ה-UI לא נוגע במימוש הפנימי שלכם. הוא מדבר עם ה-DBMS רק דרך ממשק (interface) אחד, `SkiDBAdapter`, כך שהתכנון (Design) נשאר שלכם.
 
 > **חניכים: התחילו מ[מדריך החניך](docs/STUDENT_GUIDE.md).** יש בו הוראות התקנה שלב אחר שלב ל-IntelliJ, VS Code, Maven, Gradle ושורת הפקודה, תבנית Adapter, רשימת בדיקה ופתרון בעיות.
+>
+> **שלב ב (Integer ו-Boolean):** ראו את [מדריך שלב ב](docs/STUDENT_GUIDE_STAGE_B.md) והשתמשו ב-[skidb-ui-2.0.jar](dist/skidb-ui-2.0.jar).
+
+| שלב | JAR | טיפוסים |
+|---|---|---|
+| א | [skidb-ui-1.0.jar](dist/skidb-ui-1.0.jar) | `String` |
+| ב | [skidb-ui-2.0.jar](dist/skidb-ui-2.0.jar) | `String`, `Integer`, `Boolean` |
 
 ## בקצרה
 

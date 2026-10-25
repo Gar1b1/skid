@@ -14,7 +14,14 @@ import java.util.Map;
  * The UI catches every exception and shows its class name and message to the user,
  * so feel free to throw your own exception types.
  * <p>
- * Stage A: the only supported field type is {@code "String"}.
+ * Stage B field types, and the Java class of their values:
+ * <ul>
+ *   <li>{@code "String"}  - {@link String}</li>
+ *   <li>{@code "Integer"} - {@link Integer}</li>
+ *   <li>{@code "Boolean"} - {@link Boolean}</li>
+ * </ul>
+ * The UI converts what the user types to these classes before calling you. It can also send a
+ * value of the wrong class on purpose, so your DBMS must check every value against the schema.
  */
 public interface SkiDBAdapter {
 
@@ -22,7 +29,7 @@ public interface SkiDBAdapter {
      * Creates a new, empty collection.
      *
      * @param name   unique collection name
-     * @param schema field name -> type name (stage A: always "String"), in display order
+     * @param schema field name -> type name ("String", "Integer" or "Boolean"), in display order
      * @throws Exception if a collection with this name already exists, or the schema is invalid
      */
     void createCollection(String name, Map<String, String> schema) throws Exception;
@@ -49,9 +56,10 @@ public interface SkiDBAdapter {
      * Adds a new record to a collection.
      *
      * @param key   the record's unique identifier
-     * @param value the record content: field name -> value
+     * @param value the record content: field name -> value (a String, Integer or Boolean)
      * @throws Exception if the collection does not exist, the key already exists,
-     *                   or the value does not match the collection's schema
+     *                   or the value does not match the collection's schema (missing field,
+     *                   field not in the schema, or a value of the wrong type)
      */
     void addRecord(String collection, String key, Map<String, Object> value) throws Exception;
 

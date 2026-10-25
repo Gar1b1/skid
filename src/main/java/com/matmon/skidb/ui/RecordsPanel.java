@@ -23,6 +23,8 @@ final class RecordsPanel extends JPanel {
     private final JLabel title = new JLabel();
     private final JLabel schemaLabel = Theme.muted(" ");
     private final JLabel countLabel = Theme.muted(" ");
+    private Map<String, String> shownSchema = Map.of();
+    private List<String> shownFields = List.of();
     private boolean updating;
 
     RecordsPanel(MainFrame frame) {
@@ -45,7 +47,17 @@ final class RecordsPanel extends JPanel {
                 JLabel c = (JLabel) super.getTableCellRendererComponent(t, value, selected, false, row, col);
                 c.setBorder(BorderFactory.createEmptyBorder(0, 8, 0, 8));
                 c.setFont(col == 0 ? Theme.BOLD : Theme.BASE);
-                c.setForeground(t.getColumnName(col).endsWith(NOT_IN_SCHEMA) ? Theme.ERROR : Theme.TEXT);
+                c.setToolTipText(null);
+                boolean bad = t.getColumnName(col).endsWith(NOT_IN_SCHEMA);
+                if (col > 0 && value != null) {
+                    String expected = shownSchema.get(shownFields.get(col - 1));
+                    c.setToolTipText(FieldTypes.nameOf(value) + (expected == null ? "" : "  (schema: " + expected + ")"));
+                    if (expected != null && !FieldTypes.matches(expected, value)) {
+                        bad = true;
+                        c.setToolTipText("Wrong type: " + FieldTypes.nameOf(value) + ", schema says " + expected);
+                    }
+                }
+                c.setForeground(bad ? Theme.ERROR : Theme.TEXT);
                 return c;
             }
         });
@@ -74,6 +86,8 @@ final class RecordsPanel extends JPanel {
     }
 
     void clear() {
+        shownSchema = Map.of();
+        shownFields = List.of();
         title.setText("No collection selected");
         schemaLabel.setText("Create a collection or select one from the list.");
         countLabel.setText(" ");
@@ -82,7 +96,8 @@ final class RecordsPanel extends JPanel {
 
     /**
      * Shows a collection. Columns are the key, every schema field, and then any field that
-     * appears in a record but not in the schema (marked in red - the schema was not enforced).
+     * appears in a record but not in the schema. Fields outside the schema and values of the
+     * wrong type are shown in red: the schema was not enforced.
      */
     void show(String name, Map<String, String> schema, Map<String, Map<String, Object>> records) {
         title.setText("Collection: " + name);
@@ -97,6 +112,8 @@ final class RecordsPanel extends JPanel {
                 value.keySet().stream().filter(f -> !fields.contains(f)).forEach(fields::add);
             }
         }
+        shownSchema = schema;
+        shownFields = fields;
         Object[] columns = new Object[fields.size() + 1];
         columns[0] = "key";
         for (int i = 0; i < fields.size(); i++) {
